@@ -1,179 +1,141 @@
-# 23 Optimizer v5.2 - Fully Automated Ultimate PC Optimizer with Live RAM/CPU Optimization
-
-function Write-Color {
-    param([string]$Text, [ConsoleColor]$Color='White')
-    $prev = $Host.UI.RawUI.ForegroundColor
-    $Host.UI.RawUI.ForegroundColor = $Color
-    Write-Host $Text
-    $Host.UI.RawUI.ForegroundColor = $prev
-}
-
-function Show-Progress {
-    param([string]$Activity,[int]$Percent)
-    Write-Progress -Activity $Activity -PercentComplete $Percent
-}
-
-function Detect-SSD {
-    $drives = Get-PhysicalDisk | Select-Object FriendlyName, MediaType
-    return $drives | Where-Object {$_.MediaType -eq 'SSD'}
-}
-
-function Log-Action {
-    param([string]$Message)
-    $logPath = "$env:USERPROFILE\Desktop\23Optimizer_Log.txt"
-    Add-Content -Path $logPath -Value ("[$(Get-Date -Format G)] $Message")
-}
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
 
 # ------------------------
-# Cleanup Functions
+# FUNCTIONS
 # ------------------------
-function Clear-Temp {
-    Write-Color "Clearing Temp folders..." Cyan
-    $paths = @("$env:temp","C:\Windows\Temp")
-    foreach ($p in $paths) {
-        if (Test-Path $p) { Remove-Item "$p\*" -Recurse -Force -ErrorAction SilentlyContinue; Log-Action "Cleared $p" }
+
+function Log-Status {
+    param([string]$Text, [string]$Color="Black")
+    $richTextBox.SelectionStart = $richTextBox.TextLength
+    $richTextBox.SelectionLength = 0
+    switch ($Color) {
+        "Green" { $richTextBox.SelectionColor = [System.Drawing.Color]::Green }
+        "Yellow" { $richTextBox.SelectionColor = [System.Drawing.Color]::Orange }
+        "Red" { $richTextBox.SelectionColor = [System.Drawing.Color]::Red }
+        default { $richTextBox.SelectionColor = [System.Drawing.Color]::Black }
     }
+    $richTextBox.AppendText("$Text`r`n")
+    $richTextBox.ScrollToCaret()
 }
 
-function Clear-RecycleBin {
-    Write-Color "Emptying Recycle Bin..." Cyan
+function Clear-TempAndCaches {
+    Log-Status "Cleaning Temp folders..." Yellow
+    $paths = @("$env:TEMP","C:\Windows\Temp")
+    foreach ($p in $paths) { if (Test-Path $p) { Remove-Item "$p\*" -Recurse -Force -ErrorAction SilentlyContinue } }
+    
+    Log-Status "Emptying Recycle Bin..." Yellow
     $shell = New-Object -ComObject Shell.Application
-    $shell.Namespace(0xA).Items() | ForEach-Object { Remove-Item $_.Path -Recurse -Force -ErrorAction SilentlyContinue; Log-Action "Removed Recycle Bin item: $($_.Path)" }
-}
-
-function Clear-Prefetch {
-    Write-Color "Clearing Prefetch files..." Cyan
-    $prefetch = "C:\Windows\Prefetch\*"
-    Remove-Item $prefetch -Force -ErrorAction SilentlyContinue
-    Log-Action "Cleared Prefetch"
-}
-
-function Clear-BrowserCache {
-    Write-Color "Clearing browser caches..." Cyan
+    $shell.Namespace(0xA).Items() | ForEach-Object { Remove-Item $_.Path -Recurse -Force -ErrorAction SilentlyContinue }
+    
+    Log-Status "Clearing Prefetch..." Yellow
+    if (Test-Path "C:\Windows\Prefetch") { Remove-Item "C:\Windows\Prefetch\*" -Force -ErrorAction SilentlyContinue }
+    
+    Log-Status "Clearing Browser Caches..." Yellow
     $caches = @(
         "$env:LOCALAPPDATA\Microsoft\Edge\User Data\Default\Cache\*",
         "$env:LOCALAPPDATA\Google\Chrome\User Data\Default\Cache\*",
         "$env:APPDATA\Mozilla\Firefox\Profiles\*\cache2\*"
     )
-    foreach ($cache in $caches) {
-        if (Test-Path $cache) { Remove-Item $cache -Recurse -Force -ErrorAction SilentlyContinue; Log-Action "Cleared browser cache: $cache" }
-    }
+    foreach ($c in $caches) { if (Test-Path $c) { Remove-Item $c -Recurse -Force -ErrorAction SilentlyContinue } }
+
+    Log-Status "[✓] Temp and cache cleanup complete" Green
 }
 
-function Clear-WindowsUpdateCache {
-    Write-Color "Cleaning Windows Update cache..." Cyan
-    $wu = "C:\Windows\SoftwareDistribution\Download\*"
-    if (Test-Path $wu) { Remove-Item $wu -Recurse -Force -ErrorAction SilentlyContinue; Log-Action "Cleared Windows Update cache" }
-}
-
-function Clear-Logs {
-    Write-Color "Cleaning Windows log files..." Cyan
-    $logs = @("C:\Windows\Logs\*","C:\Windows\System32\LogFiles\*")
-    foreach ($l in $logs) { if (Test-Path $l) { Remove-Item $l -Recurse -Force -ErrorAction SilentlyContinue; Log-Action "Cleared logs: $l" } }
-}
-
-# ------------------------
-# Optimization Functions
-# ------------------------
-function Optimize-Services {
-    Write-Color "Optimizing background services..." Cyan
-    $services = @("DiagTrack","WSearch","SysMain")
-    foreach ($s in $services) {
-        if ((Get-Service $s).Status -eq "Running") { Stop-Service $s -Force; Set-Service $s -StartupType Manual; Log-Action "Stopped service $s" }
-    }
-}
-
-function Optimize-MemoryCPU {
-    # Free memory
-    [void][System.GC]::Collect()
-    [void][System.GC]::WaitForPendingFinalizers()
-    # Lower priority of idle processes
-    Get-Process | Where-Object {$_.CPU -eq 0} | ForEach-Object { try { $_.PriorityClass = "BelowNormal" } catch {} }
-    Log-Action "Optimized Memory & CPU"
-}
-
-function Optimize-Disk {
-    $ssd = Detect-SSD
-    if ($ssd) { Write-Color "SSD detected. Skipping defrag and pagefile tweaks." Yellow }
-    else {
-        Write-Color "HDD detected. Performing defrag and pagefile optimization..." Cyan
+function Optimize-DiskAndPagefile {
+    Log-Status "Optimizing Disk & Pagefile..." Yellow
+    $ssd = Get-PhysicalDisk | Where-Object MediaType -eq 'SSD'
+    if ($ssd) {
+        Log-Status "SSD detected: skipping defrag" Yellow
+        Optimize-Volume -DriveLetter C -ReTrim -Verbose
+    } else {
+        Log-Status "HDD detected: performing defrag..." Yellow
         Optimize-Volume -DriveLetter C -Defrag -Verbose
         Set-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management" "PagingFiles" -Value "C:\pagefile.sys 4096 8192"
-        Log-Action "Disk and pagefile optimized"
     }
+    Log-Status "[✓] Disk & Pagefile optimization complete" Green
 }
 
-function Optimize-StartupApps {
-    Write-Color "Optimizing startup applications..." Cyan
-    Get-CimInstance Win32_StartupCommand | Where-Object {$_.User -ne $null} | ForEach-Object { try { $_ | Invoke-CimMethod -MethodName Disable; Log-Action "Disabled startup app: $($_.Name)" } catch {} }
+function Optimize-MemoryAndCPU {
+    Log-Status "Optimizing Memory & CPU..." Yellow
+    [void][System.GC]::Collect()
+    [void][System.GC]::WaitForPendingFinalizers()
+    Get-Process | Where-Object {$_.CPU -eq 0} | ForEach-Object { try { $_.PriorityClass = "BelowNormal" } catch {} }
+    Log-Status "[✓] Memory & CPU optimization complete" Green
+}
+
+function Optimize-ServicesAndStartup {
+    Log-Status "Optimizing Services & Startup Apps..." Yellow
+    $services = @("DiagTrack","WSearch","SysMain")
+    foreach ($s in $services) { try { Stop-Service $s -Force; Set-Service $s -StartupType Manual } catch {} }
+
+    Get-CimInstance Win32_StartupCommand | Where-Object {$_.User -ne $null} | ForEach-Object { try { $_ | Invoke-CimMethod -MethodName Disable } catch {} }
+    Log-Status "[✓] Services & Startup Apps optimization complete" Green
 }
 
 function Apply-SystemTweaks {
-    Write-Color "Applying system tweaks..." Cyan
+    Log-Status "Applying System Tweaks..." Yellow
     Set-ItemProperty "HKCU:\Control Panel\Desktop\WindowMetrics" "MinAnimate" -Value "0"
     Set-ItemProperty "HKCU:\Control Panel\Desktop" "MenuShowDelay" -Value "100"
-    Log-Action "Applied system tweaks"
+    Log-Status "[✓] System tweaks applied" Green
 }
 
-function Revert-Changes {
-    Write-Color "Reverting all changes..." Red
+function Revert-AllChanges {
+    Log-Status "Reverting all changes..." Red
     $services = @("DiagTrack","WSearch","SysMain")
-    foreach ($s in $services) { try { Set-Service $s -StartupType Automatic; Start-Service $s; Log-Action "Restored service $s" } catch {} }
+    foreach ($s in $services) { try { Set-Service $s -StartupType Automatic; Start-Service $s } catch {} }
     Set-ItemProperty "HKCU:\Control Panel\Desktop\WindowMetrics" "MinAnimate" -Value "1"
     Set-ItemProperty "HKCU:\Control Panel\Desktop" "MenuShowDelay" -Value "400"
-    Write-Color "All changes reverted!" Green
-    Log-Action "Reverted all tweaks"
+    Log-Status "[✓] All changes reverted" Green
 }
 
 # ------------------------
-# Live Monitoring & Periodic Optimization
+# GUI SETUP
 # ------------------------
-function Start-LiveOptimization {
-    $timer = [System.Diagnostics.Stopwatch]::StartNew()
-    while ($true) {
-        Clear-Host
-        $cpu = Get-Counter '\Processor(_Total)\% Processor Time'
-        $ram = Get-Counter '\Memory\Available MBytes'
-        Write-Color ("CPU Usage: {0:N1}%" -f $cpu.CounterSamples[0].CookedValue) Magenta
-        Write-Color ("Available RAM: {0:N0} MB" -f $ram.CounterSamples[0].CookedValue) Magenta
-        # Free RAM & optimize CPU every 10 seconds
-        if ($timer.Elapsed.TotalSeconds -ge 10) {
-            Optimize-MemoryCPU
-            $timer.Restart()
-        }
-        Start-Sleep -Milliseconds 1000
+
+$form = New-Object System.Windows.Forms.Form
+$form.Text = "23 Optimizer"
+$form.Size = New-Object System.Drawing.Size(600,450)
+$form.StartPosition = "CenterScreen"
+
+$label = New-Object System.Windows.Forms.Label
+$label.Text = "Enter number to select category:`r`n1 = Temp & Caches`r`n2 = Disk & Pagefile`r`n3 = Memory & CPU`r`n4 = Services & Startup`r`n5 = System Tweaks`r`n6 = Revert All`r`n7 = Exit"
+$label.Size = New-Object System.Drawing.Size(550,140)
+$label.Location = New-Object System.Drawing.Point(20,10)
+$form.Controls.Add($label)
+
+$textBox = New-Object System.Windows.Forms.TextBox
+$textBox.Location = New-Object System.Drawing.Point(20,160)
+$textBox.Size = New-Object System.Drawing.Size(100,25)
+$form.Controls.Add($textBox)
+
+$runButton = New-Object System.Windows.Forms.Button
+$runButton.Text = "Run"
+$runButton.Location = New-Object System.Drawing.Point(140,160)
+$runButton.Size = New-Object System.Drawing.Size(100,25)
+$form.Controls.Add($runButton)
+
+$richTextBox = New-Object System.Windows.Forms.RichTextBox
+$richTextBox.Location = New-Object System.Drawing.Point(20,200)
+$richTextBox.Size = New-Object System.Drawing.Size(540,200)
+$richTextBox.ReadOnly = $true
+$form.Controls.Add($richTextBox)
+
+# ------------------------
+# BUTTON EVENT
+# ------------------------
+$runButton.Add_Click({
+    $choice = $textBox.Text
+    switch ($choice) {
+        "1" { Clear-TempAndCaches }
+        "2" { Optimize-DiskAndPagefile }
+        "3" { Optimize-MemoryAndCPU }
+        "4" { Optimize-ServicesAndStartup }
+        "5" { Apply-SystemTweaks }
+        "6" { Revert-AllChanges }
+        "7" { $form.Close() }
+        default { Log-Status "[!] Invalid selection" Red }
     }
-}
+})
 
-# ------------------------
-# Fully Automated Execution
-# ------------------------
-Clear-Host
-Write-Color "Starting 23 Optimizer - Fully Automated" Cyan
-
-$steps = @(
-    @{Func=Clear-Temp; Desc="Cleaning Temp folders"},
-    @{Func=Clear-RecycleBin; Desc="Emptying Recycle Bin"},
-    @{Func=Clear-Prefetch; Desc="Clearing Prefetch files"},
-    @{Func=Clear-BrowserCache; Desc="Clearing Browser Caches"},
-    @{Func=Clear-WindowsUpdateCache; Desc="Cleaning Windows Update cache"},
-    @{Func=Clear-Logs; Desc="Cleaning Windows Logs"},
-    @{Func=Optimize-Services; Desc="Optimizing Services"},
-    @{Func=Optimize-MemoryCPU; Desc="Optimizing Memory & CPU"},
-    @{Func=Optimize-Disk; Desc="Optimizing Disk"},
-    @{Func=Optimize-StartupApps; Desc="Optimizing Startup Apps"},
-    @{Func=Apply-SystemTweaks; Desc="Applying System Tweaks"}
-)
-
-$total = $steps.Count
-for ($i=0; $i -lt $total; $i++) {
-    $percent = [int](($i/$total)*100)
-    Show-Progress $steps[$i].Desc $percent
-    & $steps[$i].Func
-}
-
-Show-Progress "Optimization Complete!" 100
-Write-Color "`nAll initial optimizations complete!" Green
-Write-Color "Starting live RAM & CPU optimization. Press Ctrl+C to stop." Yellow
-
-Start-LiveOptimization
+[void]$form.ShowDialog()
