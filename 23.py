@@ -1015,24 +1015,42 @@ class OptimizerUI(GalaxyBackground):
         self.setFixedSize(1000, 700)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(0)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        panel = QFrame()
+        panel.setStyleSheet("""
+            QFrame {
+                background: rgba(10, 10, 12, 0.75);
+                border: 1px solid rgba(239, 68, 68, 0.35);
+                border-radius: 22px;
+            }
+        """)
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setSpacing(18)
+        panel_layout.setContentsMargins(35, 30, 35, 30)
 
         # Header
         title = QLabel(APP_NAME)
-        title.setFont(QFont("Segoe UI", 48, QFont.Weight.Bold))
+        title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
         title.setStyleSheet("color: white; letter-spacing: 2px;")
 
         subtitle = PulseLabel("Safe & Adaptive System Optimization")
-        subtitle.setFont(QFont("Segoe UI", 13))
-        subtitle.setStyleSheet("color: #d1d5db;")
+        subtitle.setFont(QFont("Segoe UI", 12))
+        subtitle.setStyleSheet("color: #e5e7eb;")
+
+        header_line = QFrame()
+        header_line.setFixedHeight(2)
+        header_line.setStyleSheet("background: rgba(239, 68, 68, 0.4); border-radius: 1px;")
 
         # Stats cards
         stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(15)
+        stats_layout.setSpacing(20)
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
+        self.cleaned_card.setFixedSize(170, 92)
+        self.optimized_card.setFixedSize(170, 92)
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
@@ -1041,6 +1059,7 @@ class OptimizerUI(GalaxyBackground):
 
         # Button
         self.button = AnimatedButton("OPTIMIZE NOW")
+        self.button.setMinimumWidth(320)
         self.button.start_pulse()
         self.button.clicked.connect(self.start_optimization)
 
@@ -1052,7 +1071,7 @@ class OptimizerUI(GalaxyBackground):
         # Status labels
         self.status = QLabel("Ready to optimize")
         self.status.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        self.status.setStyleSheet("color: #f87171;")
+        self.status.setStyleSheet("color: #f87171; letter-spacing: 0.5px;")
 
         self.substatus = QLabel("Click the button to begin")
         self.substatus.setFont(QFont("Segoe UI", 11))
@@ -1063,18 +1082,19 @@ class OptimizerUI(GalaxyBackground):
         self.ai_status.setStyleSheet("color: #fecaca;")
 
         # Layout assembly
+        panel_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
+        panel_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        panel_layout.addWidget(header_line)
+        panel_layout.addLayout(stats_layout)
+        panel_layout.addSpacing(10)
+        panel_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        panel_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
+        panel_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
+        panel_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
+        panel_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
+
         layout.addStretch(1)
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addSpacing(20)
-        layout.addLayout(stats_layout)
-        layout.addSpacing(20)
-        layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addSpacing(20)
-        layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(panel)
         layout.addStretch(1)
 
     def start_optimization(self):
