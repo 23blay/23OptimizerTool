@@ -833,17 +833,11 @@ class GalaxyBackground(QWidget):
 class StatCard(QFrame):
     def __init__(self, title, value="0", unit=""):
         super().__init__()
-        self.setFixedSize(140, 90)
-        self.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(127, 29, 29, 0.75), stop:1 rgba(239, 68, 68, 0.15));
-                border-radius: 16px;
-            }
-        """)
+        self.setFixedSize(160, 80)
+        self.setStyleSheet("QFrame { background: transparent; }")
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 12, 15, 12)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(2)
         
         self.value_label = QLabel(value)
@@ -1017,19 +1011,9 @@ class OptimizerUI(GalaxyBackground):
         layout.setSpacing(0)
         layout.setContentsMargins(30, 30, 30, 30)
 
-        panel = QFrame()
-        panel.setStyleSheet("""
-            QFrame {
-                background: qradialgradient(cx:0.2, cy:0.1, radius:1,
-                    stop:0 rgba(248, 113, 113, 0.12),
-                    stop:0.45 rgba(10, 10, 12, 0.82),
-                    stop:1 rgba(6, 6, 8, 0.9));
-                border-radius: 22px;
-            }
-        """)
-        panel_layout = QVBoxLayout(panel)
-        panel_layout.setSpacing(18)
-        panel_layout.setContentsMargins(35, 30, 35, 30)
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(18)
+        content_layout.setContentsMargins(10, 0, 10, 0)
 
         # Header
         title = QLabel(APP_NAME)
@@ -1050,8 +1034,8 @@ class OptimizerUI(GalaxyBackground):
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
-        self.cleaned_card.setFixedSize(170, 92)
-        self.optimized_card.setFixedSize(170, 92)
+        self.cleaned_card.setFixedSize(180, 80)
+        self.optimized_card.setFixedSize(180, 80)
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
@@ -1083,19 +1067,19 @@ class OptimizerUI(GalaxyBackground):
         self.ai_status.setStyleSheet("color: #fecaca;")
 
         # Layout assembly
-        panel_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
-        panel_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
-        panel_layout.addWidget(header_line)
-        panel_layout.addLayout(stats_layout)
-        panel_layout.addSpacing(10)
-        panel_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
-        panel_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
-        panel_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
-        panel_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
-        panel_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(header_line)
+        content_layout.addLayout(stats_layout)
+        content_layout.addSpacing(10)
+        content_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         layout.addStretch(1)
-        layout.addWidget(panel)
+        layout.addLayout(content_layout)
         layout.addStretch(1)
 
     def start_optimization(self):
