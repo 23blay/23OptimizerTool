@@ -92,7 +92,6 @@ class OptimizerWorker(QObject):
             'errors': 0,
             'skipped': 0,
             'duration': 0,
-            'boost_score': 0,
             'focus': '',
             'tier': ''
         }
@@ -143,7 +142,6 @@ class OptimizerWorker(QObject):
                 time.sleep(0.15)
             
             self.stats['duration'] = time.time() - start_time
-            self.stats['boost_score'] = self.calculate_boost_score()
             self.done.emit(self.stats)
             
         except Exception as e:
@@ -151,7 +149,6 @@ class OptimizerWorker(QObject):
 
     def _get_optimization_steps(self):
         """Returns list of (function, name, is_safe) tuples"""
-        disk_low = self.ai_profile.get("disk_low", False)
         steps = [
             # AI-guided cleanup
             (self.clear_crash_dumps, "Clearing crash dumps", True),
@@ -198,8 +195,6 @@ class OptimizerWorker(QObject):
             (self.optimize_game_mode, "Enabling Game Mode", True),
             (self.disable_game_dvr, "Disabling Game DVR", True),
 ]
-        if disk_low:
-            steps.insert(10, (self.clear_windows_update_cache, "Clearing Windows Update cache", True))
         return steps
     # ===============================
     # SYSTEM INFO
@@ -300,15 +295,6 @@ class OptimizerWorker(QObject):
             "disk_low": disk_low,
             "disk_free": disk_free
         }
-
-    def calculate_boost_score(self):
-        base = 20
-        base += min(40, int(self.stats['cleaned_mb'] / 25))
-        base += min(30, self.stats['optimizations_applied'] * 2)
-        base -= self.stats['errors'] * 5
-        if self.ai_profile.get("disk_low"):
-            base += 5
-        return max(10, min(100, base))
 
     # ===============================
     # SYSTEM RESTORE
@@ -436,19 +422,6 @@ class OptimizerWorker(QObject):
         path = r"C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache"
         self.stats['cleaned_mb'] += self._safe_delete(path)
 
-    def clear_windows_update_cache(self):
-        self.substatus.emit("Clearing Windows Update cache")
-        cmds = [
-            "net stop wuauserv",
-            "net stop bits"
-        ]
-        for cmd in cmds:
-            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=10)
-        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\SoftwareDistribution\Download")
-        for cmd in reversed(cmds):
-            subprocess.run(cmd.replace("stop", "start"), shell=True, stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL, timeout=10)
 
     # ===============================
     # NETWORK OPTIMIZATIONS
@@ -1060,14 +1033,10 @@ class OptimizerUI(GalaxyBackground):
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
-        self.time_card = StatCard("Time", "0", "sec")
-        self.boost_card = StatCard("Boost", "0", "%")
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
         stats_layout.addWidget(self.optimized_card)
-        stats_layout.addWidget(self.time_card)
-        stats_layout.addWidget(self.boost_card)
         stats_layout.addStretch()
 
         # Button
@@ -1152,8 +1121,6 @@ class OptimizerUI(GalaxyBackground):
         # Update stat cards
         self.cleaned_card.set_value(f"{stats['cleaned_mb']:.0f}")
         self.optimized_card.set_value(stats['optimizations_applied'])
-        self.time_card.set_value(f"{stats['duration']:.1f}")
-        self.boost_card.set_value(stats['boost_score'])
         
         # Big particle burst
         self.add_particle_burst(self.width()//2, self.height()//2, 50)
@@ -1167,7 +1134,6 @@ class OptimizerUI(GalaxyBackground):
             f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
             f"• Optimizations: {stats['optimizations_applied']}\n"
             f"• Duration: {stats['duration']:.1f}s\n"
-            f"• Boost Score: {stats['boost_score']}%\n"
             f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
             f"• Errors: {stats['errors']}\n"
             f"• Skipped: {stats['skipped']} (advanced features)"
