@@ -820,12 +820,12 @@ class GalaxyBackground(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(ring.x, ring.y), ring.radius, ring.radius)
 
-        # Scanline overlay
-        scan = QLinearGradient(0, 0, self.width(), self.height())
-        scan.setColorAt(0, QColor(239, 68, 68, 0))
-        scan.setColorAt(0.5, QColor(239, 68, 68, 20))
-        scan.setColorAt(1, QColor(239, 68, 68, 0))
-        painter.fillRect(self.rect(), scan)
+        # Soft glow overlay
+        glow = QRadialGradient(self.width() * 0.7, self.height() * 0.25, self.width() * 0.8)
+        glow.setColorAt(0, QColor(248, 113, 113, 35))
+        glow.setColorAt(0.7, QColor(239, 68, 68, 12))
+        glow.setColorAt(1, QColor(0, 0, 0, 0))
+        painter.fillRect(self.rect(), glow)
 
 # ===============================
 # STAT CARD WIDGET
@@ -836,9 +836,9 @@ class StatCard(QFrame):
         self.setFixedSize(140, 90)
         self.setStyleSheet("""
             QFrame {
-                background: rgba(20, 10, 10, 0.7);
-                border: 1px solid rgba(239, 68, 68, 0.3);
-                border-radius: 12px;
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(127, 29, 29, 0.75), stop:1 rgba(239, 68, 68, 0.15));
+                border-radius: 16px;
             }
         """)
         
@@ -951,7 +951,7 @@ class AnimatedButton(QPushButton):
                 font-family: 'Segoe UI';
                 padding: 18px 50px;
                 border-radius: 16px;
-                border: 2px solid rgba(239, 68, 68, {min(1.0, glow/15)});
+                border: none;
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -991,7 +991,6 @@ class GlowProgressBar(QProgressBar):
         self.setStyleSheet("""
             QProgressBar {
                 background: rgba(10, 5, 5, 0.8);
-                border: 2px solid rgba(239, 68, 68, 0.4);
                 border-radius: 12px;
                 color: white;
                 font-weight: bold;
@@ -1021,8 +1020,10 @@ class OptimizerUI(GalaxyBackground):
         panel = QFrame()
         panel.setStyleSheet("""
             QFrame {
-                background: rgba(10, 10, 12, 0.75);
-                border: 1px solid rgba(239, 68, 68, 0.35);
+                background: qradialgradient(cx:0.2, cy:0.1, radius:1,
+                    stop:0 rgba(248, 113, 113, 0.12),
+                    stop:0.45 rgba(10, 10, 12, 0.82),
+                    stop:1 rgba(6, 6, 8, 0.9));
                 border-radius: 22px;
             }
         """)
@@ -1041,7 +1042,7 @@ class OptimizerUI(GalaxyBackground):
 
         header_line = QFrame()
         header_line.setFixedHeight(2)
-        header_line.setStyleSheet("background: rgba(239, 68, 68, 0.4); border-radius: 1px;")
+        header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
 
         # Stats cards
         stats_layout = QHBoxLayout()
