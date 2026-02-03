@@ -9,7 +9,7 @@ from threading import Thread
 from datetime import datetime
 
 from PyQt6.QtCore import (
-    Qt, QTimer, QRectF, pyqtSignal, QObject, 
+    Qt, QTimer, QRectF, pyqtSignal, QObject,
     QPropertyAnimation, QEasingCurve, pyqtProperty, QSequentialAnimationGroup,
     QParallelAnimationGroup, QPointF
 )
@@ -157,6 +157,9 @@ class OptimizerWorker(QObject):
             (self.clear_crash_dumps, "Clearing crash dumps", True),
             (self.clear_shader_cache, "Clearing shader cache", True),
             (self.clear_browser_cache, "Clearing browser caches", True),
+            (self.clear_spooler_cache, "Clearing print spooler cache", True),
+            (self.clear_cbs_logs, "Clearing system servicing logs", True),
+            (self.clear_dism_logs, "Clearing DISM logs", True),
 
             # Cleanup - All Safe
             (self.clear_temp, "Cleaning temporary files", True),
@@ -368,6 +371,28 @@ class OptimizerWorker(QObject):
         thumb_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Explorer")
         size = self._safe_delete(thumb_path, "thumbcache_*.db")
         self.stats['cleaned_mb'] += size
+
+    def clear_spooler_cache(self):
+        self.substatus.emit("Clearing print spooler cache")
+        try:
+            subprocess.run("net stop spooler", shell=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10)
+        except:
+            pass
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\System32\spool\PRINTERS")
+        try:
+            subprocess.run("net start spooler", shell=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10)
+        except:
+            pass
+
+    def clear_cbs_logs(self):
+        self.substatus.emit("Clearing component servicing logs")
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\Logs\CBS")
+
+    def clear_dism_logs(self):
+        self.substatus.emit("Clearing DISM logs")
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\Logs\DISM")
 
     def clear_crash_dumps(self):
         self.substatus.emit("Removing crash dump files")
@@ -644,6 +669,16 @@ class Particle:
         self.color = color
         self.life = 1.0
 
+class PulseRing:
+    def __init__(self, x, y, max_radius=220, speed=6, color=QColor(239, 68, 68)):
+        self.x = x
+        self.y = y
+        self.radius = 0
+        self.max_radius = max_radius
+        self.speed = speed
+        self.alpha = 160
+        self.color = color
+
 # ===============================
 # GALAXY BACKGROUND WITH NEBULA
 # ===============================
@@ -652,7 +687,10 @@ class GalaxyBackground(QWidget):
         super().__init__()
         self.stars = []
         self.particles = []
+        self.comets = []
+        self.pulse_rings = []
         self.nebula_offset = 0
+        self.scan_phase = 0
         
         # Create star field with twinkle
         for _ in range(200):
@@ -684,6 +722,19 @@ class GalaxyBackground(QWidget):
                 random.choice(colors)
             ))
 
+    def add_pulse_ring(self, x, y, color=QColor(248, 113, 113)):
+        self.pulse_rings.append(PulseRing(x, y, color=color))
+
+    def spawn_comet(self):
+        if random.random() < 0.03:
+            self.comets.append({
+                'x': random.randint(0, self.width()),
+                'y': random.randint(-200, 0),
+                'vx': random.uniform(-3, -1),
+                'vy': random.uniform(4, 7),
+                'life': 1.0
+            })
+
     def animate(self):
         # Animate stars with twinkle
         for star in self.stars:
@@ -705,12 +756,28 @@ class GalaxyBackground(QWidget):
             particle.life -= 0.02
             if particle.life <= 0:
                 self.particles.remove(particle)
-        
+
+        for ring in self.pulse_rings[:]:
+            ring.radius += ring.speed
+            ring.alpha -= 4
+            if ring.radius > ring.max_radius or ring.alpha <= 0:
+                self.pulse_rings.remove(ring)
+
+        for comet in self.comets[:]:
+            comet['x'] += comet['vx']
+            comet['y'] += comet['vy']
+            comet['life'] -= 0.015
+            if comet['life'] <= 0 or comet['x'] < -200 or comet['y'] > self.height() + 200:
+                self.comets.remove(comet)
+
         # Nebula drift
         self.nebula_offset += 0.5
         if self.nebula_offset > 360:
             self.nebula_offset = 0
-        
+
+        self.scan_phase = (self.scan_phase + 1) % 360
+        self.spawn_comet()
+
         self.update()
 
     def paintEvent(self, event):
@@ -755,6 +822,38 @@ class GalaxyBackground(QWidget):
                 particle.size, particle.size
             ))
 
+        # Draw comets
+        painter.setPen(Qt.PenStyle.NoPen)
+        for comet in self.comets:
+            alpha = int(180 * comet['life'])
+            painter.setBrush(QColor(248, 113, 113, alpha))
+            painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
+            tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
+            painter.setPen(tail_pen)
+            painter.drawLine(
+                int(comet['x']),
+                int(comet['y']),
+                int(comet['x'] - comet['vx'] * 6),
+                int(comet['y'] - comet['vy'] * 6)
+            )
+
+        # Draw pulse rings
+        painter.setPen(Qt.PenStyle.NoPen)
+        for ring in self.pulse_rings:
+            ring_color = QColor(ring.color)
+            ring_color.setAlpha(max(0, ring.alpha))
+            pen = QPen(ring_color, 2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPointF(ring.x, ring.y), ring.radius, ring.radius)
+
+        # Scanline overlay
+        scan = QLinearGradient(0, 0, self.width(), self.height())
+        scan.setColorAt(0, QColor(239, 68, 68, 0))
+        scan.setColorAt(0.5, QColor(239, 68, 68, 20))
+        scan.setColorAt(1, QColor(239, 68, 68, 0))
+        painter.fillRect(self.rect(), scan)
+
 # ===============================
 # STAT CARD WIDGET
 # ===============================
@@ -795,6 +894,22 @@ class StatCard(QFrame):
     
     def set_value(self, value):
         self.value_label.setText(str(value))
+
+# ===============================
+# PULSE LABEL
+# ===============================
+class PulseLabel(QLabel):
+    def __init__(self, text="", parent=None, min_opacity=0.6, max_opacity=1.0):
+        super().__init__(text, parent)
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        self.opacity_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.opacity_anim.setDuration(1800)
+        self.opacity_anim.setStartValue(min_opacity)
+        self.opacity_anim.setEndValue(max_opacity)
+        self.opacity_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.opacity_anim.setLoopCount(-1)
+        self.opacity_anim.start()
 
 # ===============================
 # ANIMATED BUTTON WITH PULSE
@@ -935,7 +1050,7 @@ class OptimizerUI(GalaxyBackground):
         title.setFont(QFont("Segoe UI", 48, QFont.Weight.Bold))
         title.setStyleSheet("color: white; letter-spacing: 2px;")
 
-        subtitle = QLabel("Safe & Adaptive System Optimization")
+        subtitle = PulseLabel("Safe & Adaptive System Optimization")
         subtitle.setFont(QFont("Segoe UI", 13))
         subtitle.setStyleSheet("color: #d1d5db;")
 
@@ -974,7 +1089,7 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
 
-        self.ai_status = QLabel("AI ready: adaptive optimization online")
+        self.ai_status = PulseLabel("AI ready: adaptive optimization online", min_opacity=0.5, max_opacity=0.9)
         self.ai_status.setFont(QFont("Segoe UI", 10))
         self.ai_status.setStyleSheet("color: #fecaca;")
 
@@ -998,6 +1113,7 @@ class OptimizerUI(GalaxyBackground):
         self.button.stop_pulse()
         self.button.setEnabled(False)
         self.add_particle_burst(self.width()//2, self.height()//2 + 50, 30)
+        self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
         
         # Start worker
         self.worker = OptimizerWorker()
@@ -1018,6 +1134,7 @@ class OptimizerUI(GalaxyBackground):
                 random.randint(100, self.height()-100),
                 10
             )
+            self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
 
     def update_status(self, text):
         self.status.setText(text)
