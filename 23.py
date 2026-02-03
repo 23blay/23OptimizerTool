@@ -1,15 +1,9 @@
-#!/usr/bin/env python3
-# ===============================
-# 23 Optimizer – Galaxy Edition
-# Safe Adaptive System Optimizer
-# ===============================
-
 import sys, os, ctypes, subprocess, shutil, random, time, winreg, math
 from threading import Thread
 from datetime import datetime
 
 from PyQt6.QtCore import (
-    Qt, QTimer, QRectF, pyqtSignal, QObject, 
+    Qt, QTimer, QRectF, pyqtSignal, QObject,
     QPropertyAnimation, QEasingCurve, pyqtProperty, QSequentialAnimationGroup,
     QParallelAnimationGroup, QPointF
 )
@@ -21,13 +15,10 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "Galaxy Edition v2.0"
+VERSION = "v1.4"
 
-# ===============================
-# SAFETY CONFIGURATION
-# ===============================
-SAFE_MODE = True  # Set to False only if you know what you're doing
-CREATE_RESTORE_POINT = True  # Creates system restore point before optimization
+SAFE_MODE = True
+CREATE_RESTORE_POINT = True
 
 # ===============================
 # ADMIN CHECK
@@ -80,7 +71,8 @@ class OptimizerWorker(QObject):
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
     substatus = pyqtSignal(str)
-    done = pyqtSignal(dict)  # Returns statistics
+    insight = pyqtSignal(str)
+    done = pyqtSignal(dict)
     error = pyqtSignal(str)
 
     def __init__(self):
@@ -90,8 +82,11 @@ class OptimizerWorker(QObject):
             'optimizations_applied': 0,
             'errors': 0,
             'skipped': 0,
-            'duration': 0
+            'duration': 0,
+            'focus': '',
+            'tier': ''
         }
+        self.ai_profile = {}
 
     def run(self):
         start_time = time.time()
@@ -102,6 +97,14 @@ class OptimizerWorker(QObject):
             self.substatus.emit("Detecting hardware configuration")
             self.sys = self.get_system_info()
             time.sleep(0.5)
+
+            self.status.emit("AI planning optimization...")
+            self.substatus.emit("Building adaptive optimization profile")
+            self.ai_profile = self.build_ai_profile()
+            self.stats['focus'] = ", ".join(self.ai_profile["focus"])
+            self.stats['tier'] = self.ai_profile["tier"]
+            self.insight.emit(self.ai_profile["tagline"])
+            time.sleep(0.4)
             
             # Create restore point if enabled
             if CREATE_RESTORE_POINT and SAFE_MODE:
@@ -137,7 +140,15 @@ class OptimizerWorker(QObject):
 
     def _get_optimization_steps(self):
         """Returns list of (function, name, is_safe) tuples"""
-        return [
+        steps = [
+            # AI-guided cleanup
+            (self.clear_crash_dumps, "Clearing crash dumps", True),
+            (self.clear_shader_cache, "Clearing shader cache", True),
+            (self.clear_browser_cache, "Clearing browser caches", True),
+            (self.clear_spooler_cache, "Clearing print spooler cache", True),
+            (self.clear_cbs_logs, "Clearing system servicing logs", True),
+            (self.clear_dism_logs, "Clearing DISM logs", True),
+
             # Cleanup - All Safe
             (self.clear_temp, "Cleaning temporary files", True),
             (self.clear_prefetch, "Cleaning prefetch cache", True),
@@ -145,6 +156,7 @@ class OptimizerWorker(QObject):
             (self.clear_error_reports, "Clearing error reports", True),
             (self.clear_windows_logs, "Clearing Windows logs", True),
             (self.clear_thumbnail_cache, "Clearing thumbnail cache", True),
+            (self.clear_delivery_optimization_cache, "Clearing delivery optimization cache", True),
             
             # Network - Safe
             (self.flush_dns, "Flushing DNS cache", True),
@@ -161,6 +173,7 @@ class OptimizerWorker(QObject):
             (self.optimize_explorer, "Optimizing File Explorer", True),
             (self.optimize_startup, "Optimizing startup", True),
             (self.reduce_menu_delay, "Reducing menu delays", True),
+            (self.optimize_notifications, "Reducing Windows suggestions", True),
             
             # Services - Safe
             (self.disable_telemetry, "Disabling telemetry", True),
@@ -173,6 +186,7 @@ class OptimizerWorker(QObject):
             (self.optimize_game_mode, "Enabling Game Mode", True),
             (self.disable_game_dvr, "Disabling Game DVR", True),
 ]
+        return steps
     # ===============================
     # SYSTEM INFO
     # ===============================
@@ -229,6 +243,49 @@ class OptimizerWorker(QObject):
         
         self.substatus.emit(f"{info['cores']} cores | {info['ram']}GB RAM | {info['gpu'].upper()} GPU | {'SSD' if info['ssd'] else 'HDD'}")
         return info
+
+    def get_disk_free_gb(self, drive="C:\\"):
+        try:
+            usage = shutil.disk_usage(drive)
+            return int(usage.free / (1024 ** 3))
+        except:
+            return 0
+
+    def build_ai_profile(self):
+        disk_free = self.get_disk_free_gb()
+        disk_low = disk_free < 12
+        cores = self.sys.get("cores", 4)
+        ram = self.sys.get("ram", 8)
+        gpu = self.sys.get("gpu", "unknown")
+
+        tier_score = (cores * 1.2) + (ram / 2) + (8 if self.sys.get("ssd") else 0)
+        if tier_score >= 26:
+            tier = "Elite"
+        elif tier_score >= 16:
+            tier = "Balanced"
+        else:
+            tier = "Lite"
+
+        focus = []
+        if disk_low:
+            focus.append("Storage")
+        if ram <= 8:
+            focus.append("Memory")
+        if cores <= 4:
+            focus.append("Responsiveness")
+        if gpu != "unknown":
+            focus.append("Graphics")
+        if not focus:
+            focus.append("System Balance")
+
+        tagline = f"AI Focus: {', '.join(focus)} • Tier: {tier} • Free Space: {disk_free}GB"
+        return {
+            "tier": tier,
+            "focus": focus,
+            "tagline": tagline,
+            "disk_low": disk_low,
+            "disk_free": disk_free
+        }
 
     # ===============================
     # SYSTEM RESTORE
@@ -291,6 +348,71 @@ class OptimizerWorker(QObject):
         thumb_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Explorer")
         size = self._safe_delete(thumb_path, "thumbcache_*.db")
         self.stats['cleaned_mb'] += size
+
+    def clear_spooler_cache(self):
+        self.substatus.emit("Clearing print spooler cache")
+        try:
+            subprocess.run("net stop spooler", shell=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10)
+        except:
+            pass
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\System32\spool\PRINTERS")
+        try:
+            subprocess.run("net start spooler", shell=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10)
+        except:
+            pass
+
+    def clear_cbs_logs(self):
+        self.substatus.emit("Clearing component servicing logs")
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\Logs\CBS")
+
+    def clear_dism_logs(self):
+        self.substatus.emit("Clearing DISM logs")
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\Logs\DISM")
+
+    def clear_crash_dumps(self):
+        self.substatus.emit("Removing crash dump files")
+        paths = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "CrashDumps"),
+            r"C:\Windows\Minidump"
+        ]
+        size = 0
+        for path in paths:
+            size += self._safe_delete(path)
+        self.stats['cleaned_mb'] += size
+
+    def clear_shader_cache(self):
+        self.substatus.emit("Removing shader cache")
+        paths = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "D3DSCache"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "NVIDIA", "GLCache"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "AMD", "DxCache")
+        ]
+        size = 0
+        for path in paths:
+            size += self._safe_delete(path)
+        self.stats['cleaned_mb'] += size
+
+    def clear_browser_cache(self):
+        self.substatus.emit("Refreshing browser caches")
+        local = os.environ.get("LOCALAPPDATA", "")
+        paths = [
+            os.path.join(local, "Google", "Chrome", "User Data", "Default", "Cache"),
+            os.path.join(local, "Google", "Chrome", "User Data", "Default", "Code Cache"),
+            os.path.join(local, "Microsoft", "Edge", "User Data", "Default", "Cache"),
+            os.path.join(local, "Microsoft", "Edge", "User Data", "Default", "Code Cache")
+        ]
+        size = 0
+        for path in paths:
+            size += self._safe_delete(path)
+        self.stats['cleaned_mb'] += size
+
+    def clear_delivery_optimization_cache(self):
+        self.substatus.emit("Clearing delivery optimization cache")
+        path = r"C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache"
+        self.stats['cleaned_mb'] += self._safe_delete(path)
+
 
     # ===============================
     # NETWORK OPTIMIZATIONS
@@ -396,6 +518,17 @@ class OptimizerWorker(QObject):
             shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
         )
 
+    def optimize_notifications(self):
+        self.substatus.emit("Reducing Windows tips and suggestions")
+        cmds = [
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v SubscribedContent-338389Enabled /t REG_DWORD /d 0 /f',
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v SubscribedContent-338388Enabled /t REG_DWORD /d 0 /f',
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v SystemPaneSuggestionsEnabled /t REG_DWORD /d 0 /f'
+        ]
+        for cmd in cmds:
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, timeout=5)
+
     # ===============================
     # SERVICES & TELEMETRY
     # ===============================
@@ -500,6 +633,16 @@ class Particle:
         self.color = color
         self.life = 1.0
 
+class PulseRing:
+    def __init__(self, x, y, max_radius=220, speed=6, color=QColor(239, 68, 68)):
+        self.x = x
+        self.y = y
+        self.radius = 0
+        self.max_radius = max_radius
+        self.speed = speed
+        self.alpha = 160
+        self.color = color
+
 # ===============================
 # GALAXY BACKGROUND WITH NEBULA
 # ===============================
@@ -508,7 +651,10 @@ class GalaxyBackground(QWidget):
         super().__init__()
         self.stars = []
         self.particles = []
+        self.comets = []
+        self.pulse_rings = []
         self.nebula_offset = 0
+        self.scan_phase = 0
         
         # Create star field with twinkle
         for _ in range(200):
@@ -540,6 +686,19 @@ class GalaxyBackground(QWidget):
                 random.choice(colors)
             ))
 
+    def add_pulse_ring(self, x, y, color=QColor(248, 113, 113)):
+        self.pulse_rings.append(PulseRing(x, y, color=color))
+
+    def spawn_comet(self):
+        if random.random() < 0.03:
+            self.comets.append({
+                'x': random.randint(0, self.width()),
+                'y': random.randint(-200, 0),
+                'vx': random.uniform(-3, -1),
+                'vy': random.uniform(4, 7),
+                'life': 1.0
+            })
+
     def animate(self):
         # Animate stars with twinkle
         for star in self.stars:
@@ -561,12 +720,28 @@ class GalaxyBackground(QWidget):
             particle.life -= 0.02
             if particle.life <= 0:
                 self.particles.remove(particle)
-        
+
+        for ring in self.pulse_rings[:]:
+            ring.radius += ring.speed
+            ring.alpha -= 4
+            if ring.radius > ring.max_radius or ring.alpha <= 0:
+                self.pulse_rings.remove(ring)
+
+        for comet in self.comets[:]:
+            comet['x'] += comet['vx']
+            comet['y'] += comet['vy']
+            comet['life'] -= 0.015
+            if comet['life'] <= 0 or comet['x'] < -200 or comet['y'] > self.height() + 200:
+                self.comets.remove(comet)
+
         # Nebula drift
         self.nebula_offset += 0.5
         if self.nebula_offset > 360:
             self.nebula_offset = 0
-        
+
+        self.scan_phase = (self.scan_phase + 1) % 360
+        self.spawn_comet()
+
         self.update()
 
     def paintEvent(self, event):
@@ -611,23 +786,49 @@ class GalaxyBackground(QWidget):
                 particle.size, particle.size
             ))
 
+        # Draw comets
+        painter.setPen(Qt.PenStyle.NoPen)
+        for comet in self.comets:
+            alpha = int(180 * comet['life'])
+            painter.setBrush(QColor(248, 113, 113, alpha))
+            painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
+            tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
+            painter.setPen(tail_pen)
+            painter.drawLine(
+                int(comet['x']),
+                int(comet['y']),
+                int(comet['x'] - comet['vx'] * 6),
+                int(comet['y'] - comet['vy'] * 6)
+            )
+
+        # Draw pulse rings
+        painter.setPen(Qt.PenStyle.NoPen)
+        for ring in self.pulse_rings:
+            ring_color = QColor(ring.color)
+            ring_color.setAlpha(max(0, ring.alpha))
+            pen = QPen(ring_color, 2)
+            painter.setPen(pen)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawEllipse(QPointF(ring.x, ring.y), ring.radius, ring.radius)
+
+        # Soft glow overlay
+        glow = QRadialGradient(self.width() * 0.7, self.height() * 0.25, self.width() * 0.8)
+        glow.setColorAt(0, QColor(248, 113, 113, 35))
+        glow.setColorAt(0.7, QColor(239, 68, 68, 12))
+        glow.setColorAt(1, QColor(0, 0, 0, 0))
+        painter.fillRect(self.rect(), glow)
+
 # ===============================
 # STAT CARD WIDGET
 # ===============================
 class StatCard(QFrame):
     def __init__(self, title, value="0", unit=""):
         super().__init__()
-        self.setFixedSize(140, 90)
-        self.setStyleSheet("""
-            QFrame {
-                background: rgba(20, 10, 10, 0.7);
-                border: 1px solid rgba(239, 68, 68, 0.3);
-                border-radius: 12px;
-            }
-        """)
+        self.setFixedSize(160, 80)
+        self.setStyleSheet("QFrame { background: transparent; }")
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 12, 15, 12)
+        layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(2)
         
         self.value_label = QLabel(value)
@@ -651,6 +852,22 @@ class StatCard(QFrame):
     
     def set_value(self, value):
         self.value_label.setText(str(value))
+
+# ===============================
+# PULSE LABEL
+# ===============================
+class PulseLabel(QLabel):
+    def __init__(self, text="", parent=None, min_opacity=0.6, max_opacity=1.0):
+        super().__init__(text, parent)
+        self.opacity_effect = QGraphicsOpacityEffect(self)
+        self.setGraphicsEffect(self.opacity_effect)
+        self.opacity_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
+        self.opacity_anim.setDuration(1800)
+        self.opacity_anim.setStartValue(min_opacity)
+        self.opacity_anim.setEndValue(max_opacity)
+        self.opacity_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.opacity_anim.setLoopCount(-1)
+        self.opacity_anim.start()
 
 # ===============================
 # ANIMATED BUTTON WITH PULSE
@@ -719,7 +936,7 @@ class AnimatedButton(QPushButton):
                 font-family: 'Segoe UI';
                 padding: 18px 50px;
                 border-radius: 16px;
-                border: 2px solid rgba(239, 68, 68, {min(1.0, glow/15)});
+                border: none;
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -759,7 +976,6 @@ class GlowProgressBar(QProgressBar):
         self.setStyleSheet("""
             QProgressBar {
                 background: rgba(10, 5, 5, 0.8);
-                border: 2px solid rgba(239, 68, 68, 0.4);
                 border-radius: 12px;
                 color: white;
                 font-weight: bold;
@@ -783,34 +999,43 @@ class OptimizerUI(GalaxyBackground):
         self.setFixedSize(1000, 700)
 
         layout = QVBoxLayout(self)
-        layout.setSpacing(20)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(0)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        content_layout = QVBoxLayout()
+        content_layout.setSpacing(18)
+        content_layout.setContentsMargins(10, 0, 10, 0)
 
         # Header
         title = QLabel(APP_NAME)
-        title.setFont(QFont("Segoe UI", 48, QFont.Weight.Bold))
+        title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
         title.setStyleSheet("color: white; letter-spacing: 2px;")
 
-        subtitle = QLabel("Safe & Adaptive System Optimization")
-        subtitle.setFont(QFont("Segoe UI", 13))
-        subtitle.setStyleSheet("color: #d1d5db;")
+        subtitle = PulseLabel("Safe & Adaptive System Optimization")
+        subtitle.setFont(QFont("Segoe UI", 12))
+        subtitle.setStyleSheet("color: #e5e7eb;")
+
+        header_line = QFrame()
+        header_line.setFixedHeight(2)
+        header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
 
         # Stats cards
         stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(15)
+        stats_layout.setSpacing(20)
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
-        self.time_card = StatCard("Time", "0", "sec")
+        self.cleaned_card.setFixedSize(180, 80)
+        self.optimized_card.setFixedSize(180, 80)
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
         stats_layout.addWidget(self.optimized_card)
-        stats_layout.addWidget(self.time_card)
         stats_layout.addStretch()
 
         # Button
         self.button = AnimatedButton("OPTIMIZE NOW")
+        self.button.setMinimumWidth(320)
         self.button.start_pulse()
         self.button.clicked.connect(self.start_optimization)
 
@@ -822,24 +1047,30 @@ class OptimizerUI(GalaxyBackground):
         # Status labels
         self.status = QLabel("Ready to optimize")
         self.status.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        self.status.setStyleSheet("color: #f87171;")
+        self.status.setStyleSheet("color: #f87171; letter-spacing: 0.5px;")
 
         self.substatus = QLabel("Click the button to begin")
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
 
+        self.ai_status = PulseLabel("AI ready: adaptive optimization online", min_opacity=0.5, max_opacity=0.9)
+        self.ai_status.setFont(QFont("Segoe UI", 10))
+        self.ai_status.setStyleSheet("color: #fecaca;")
+
         # Layout assembly
+        content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(header_line)
+        content_layout.addLayout(stats_layout)
+        content_layout.addSpacing(10)
+        content_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
+
         layout.addStretch(1)
-        layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addSpacing(20)
-        layout.addLayout(stats_layout)
-        layout.addSpacing(20)
-        layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addSpacing(20)
-        layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
-        layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addLayout(content_layout)
         layout.addStretch(1)
 
     def start_optimization(self):
@@ -847,12 +1078,14 @@ class OptimizerUI(GalaxyBackground):
         self.button.stop_pulse()
         self.button.setEnabled(False)
         self.add_particle_burst(self.width()//2, self.height()//2 + 50, 30)
+        self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
         
         # Start worker
         self.worker = OptimizerWorker()
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
+        self.worker.insight.connect(self.update_insight)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
         
@@ -866,12 +1099,16 @@ class OptimizerUI(GalaxyBackground):
                 random.randint(100, self.height()-100),
                 10
             )
+            self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
 
     def update_status(self, text):
         self.status.setText(text)
 
     def update_substatus(self, text):
         self.substatus.setText(text)
+
+    def update_insight(self, text):
+        self.ai_status.setText(text)
 
     def finish_optimization(self, stats):
         self.status.setText("✨ Optimization Complete!")
@@ -880,7 +1117,6 @@ class OptimizerUI(GalaxyBackground):
         # Update stat cards
         self.cleaned_card.set_value(f"{stats['cleaned_mb']:.0f}")
         self.optimized_card.set_value(stats['optimizations_applied'])
-        self.time_card.set_value(f"{stats['duration']:.1f}")
         
         # Big particle burst
         self.add_particle_burst(self.width()//2, self.height()//2, 50)
@@ -894,6 +1130,7 @@ class OptimizerUI(GalaxyBackground):
             f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
             f"• Optimizations: {stats['optimizations_applied']}\n"
             f"• Duration: {stats['duration']:.1f}s\n"
+            f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
             f"• Errors: {stats['errors']}\n"
             f"• Skipped: {stats['skipped']} (advanced features)"
         )
@@ -954,4 +1191,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     win = OptimizerUI()
     win.show()
+
     sys.exit(app.exec())
