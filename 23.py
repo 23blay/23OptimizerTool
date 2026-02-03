@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-# ===============================
-# 23 Optimizer – Galaxy Edition
-# Safe Adaptive System Optimizer
-# ===============================
-
 import sys, os, ctypes, subprocess, shutil, random, time, winreg, math
 from threading import Thread
 from datetime import datetime
@@ -21,13 +15,10 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "Galaxy Edition v2.0"
+VERSION = "v1.4"
 
-# ===============================
-# SAFETY CONFIGURATION
-# ===============================
-SAFE_MODE = True  # Set to False only if you know what you're doing
-CREATE_RESTORE_POINT = True  # Creates system restore point before optimization
+SAFE_MODE = True
+CREATE_RESTORE_POINT = True
 
 # ===============================
 # ADMIN CHECK
@@ -81,7 +72,7 @@ class OptimizerWorker(QObject):
     status = pyqtSignal(str)
     substatus = pyqtSignal(str)
     insight = pyqtSignal(str)
-    done = pyqtSignal(dict)  # Returns statistics
+    done = pyqtSignal(dict)
     error = pyqtSignal(str)
 
     def __init__(self):
@@ -1200,4 +1191,5 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     win = OptimizerUI()
     win.show()
+
     sys.exit(app.exec())
