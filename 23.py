@@ -80,6 +80,7 @@ class OptimizerWorker(QObject):
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
     substatus = pyqtSignal(str)
+    insight = pyqtSignal(str)
     done = pyqtSignal(dict)  # Returns statistics
     error = pyqtSignal(str)
 
@@ -90,8 +91,12 @@ class OptimizerWorker(QObject):
             'optimizations_applied': 0,
             'errors': 0,
             'skipped': 0,
-            'duration': 0
+            'duration': 0,
+            'boost_score': 0,
+            'focus': '',
+            'tier': ''
         }
+        self.ai_profile = {}
 
     def run(self):
         start_time = time.time()
@@ -102,6 +107,14 @@ class OptimizerWorker(QObject):
             self.substatus.emit("Detecting hardware configuration")
             self.sys = self.get_system_info()
             time.sleep(0.5)
+
+            self.status.emit("AI planning optimization...")
+            self.substatus.emit("Building adaptive optimization profile")
+            self.ai_profile = self.build_ai_profile()
+            self.stats['focus'] = ", ".join(self.ai_profile["focus"])
+            self.stats['tier'] = self.ai_profile["tier"]
+            self.insight.emit(self.ai_profile["tagline"])
+            time.sleep(0.4)
             
             # Create restore point if enabled
             if CREATE_RESTORE_POINT and SAFE_MODE:
@@ -130,6 +143,7 @@ class OptimizerWorker(QObject):
                 time.sleep(0.15)
             
             self.stats['duration'] = time.time() - start_time
+            self.stats['boost_score'] = self.calculate_boost_score()
             self.done.emit(self.stats)
             
         except Exception as e:
@@ -137,7 +151,13 @@ class OptimizerWorker(QObject):
 
     def _get_optimization_steps(self):
         """Returns list of (function, name, is_safe) tuples"""
-        return [
+        disk_low = self.ai_profile.get("disk_low", False)
+        steps = [
+            # AI-guided cleanup
+            (self.clear_crash_dumps, "Clearing crash dumps", True),
+            (self.clear_shader_cache, "Clearing shader cache", True),
+            (self.clear_browser_cache, "Clearing browser caches", True),
+
             # Cleanup - All Safe
             (self.clear_temp, "Cleaning temporary files", True),
             (self.clear_prefetch, "Cleaning prefetch cache", True),
@@ -145,6 +165,7 @@ class OptimizerWorker(QObject):
             (self.clear_error_reports, "Clearing error reports", True),
             (self.clear_windows_logs, "Clearing Windows logs", True),
             (self.clear_thumbnail_cache, "Clearing thumbnail cache", True),
+            (self.clear_delivery_optimization_cache, "Clearing delivery optimization cache", True),
             
             # Network - Safe
             (self.flush_dns, "Flushing DNS cache", True),
@@ -161,6 +182,7 @@ class OptimizerWorker(QObject):
             (self.optimize_explorer, "Optimizing File Explorer", True),
             (self.optimize_startup, "Optimizing startup", True),
             (self.reduce_menu_delay, "Reducing menu delays", True),
+            (self.optimize_notifications, "Reducing Windows suggestions", True),
             
             # Services - Safe
             (self.disable_telemetry, "Disabling telemetry", True),
@@ -173,6 +195,9 @@ class OptimizerWorker(QObject):
             (self.optimize_game_mode, "Enabling Game Mode", True),
             (self.disable_game_dvr, "Disabling Game DVR", True),
 ]
+        if disk_low:
+            steps.insert(10, (self.clear_windows_update_cache, "Clearing Windows Update cache", True))
+        return steps
     # ===============================
     # SYSTEM INFO
     # ===============================
@@ -229,6 +254,58 @@ class OptimizerWorker(QObject):
         
         self.substatus.emit(f"{info['cores']} cores | {info['ram']}GB RAM | {info['gpu'].upper()} GPU | {'SSD' if info['ssd'] else 'HDD'}")
         return info
+
+    def get_disk_free_gb(self, drive="C:\\"):
+        try:
+            usage = shutil.disk_usage(drive)
+            return int(usage.free / (1024 ** 3))
+        except:
+            return 0
+
+    def build_ai_profile(self):
+        disk_free = self.get_disk_free_gb()
+        disk_low = disk_free < 12
+        cores = self.sys.get("cores", 4)
+        ram = self.sys.get("ram", 8)
+        gpu = self.sys.get("gpu", "unknown")
+
+        tier_score = (cores * 1.2) + (ram / 2) + (8 if self.sys.get("ssd") else 0)
+        if tier_score >= 26:
+            tier = "Elite"
+        elif tier_score >= 16:
+            tier = "Balanced"
+        else:
+            tier = "Lite"
+
+        focus = []
+        if disk_low:
+            focus.append("Storage")
+        if ram <= 8:
+            focus.append("Memory")
+        if cores <= 4:
+            focus.append("Responsiveness")
+        if gpu != "unknown":
+            focus.append("Graphics")
+        if not focus:
+            focus.append("System Balance")
+
+        tagline = f"AI Focus: {', '.join(focus)} • Tier: {tier} • Free Space: {disk_free}GB"
+        return {
+            "tier": tier,
+            "focus": focus,
+            "tagline": tagline,
+            "disk_low": disk_low,
+            "disk_free": disk_free
+        }
+
+    def calculate_boost_score(self):
+        base = 20
+        base += min(40, int(self.stats['cleaned_mb'] / 25))
+        base += min(30, self.stats['optimizations_applied'] * 2)
+        base -= self.stats['errors'] * 5
+        if self.ai_profile.get("disk_low"):
+            base += 5
+        return max(10, min(100, base))
 
     # ===============================
     # SYSTEM RESTORE
@@ -291,6 +368,62 @@ class OptimizerWorker(QObject):
         thumb_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Explorer")
         size = self._safe_delete(thumb_path, "thumbcache_*.db")
         self.stats['cleaned_mb'] += size
+
+    def clear_crash_dumps(self):
+        self.substatus.emit("Removing crash dump files")
+        paths = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "CrashDumps"),
+            r"C:\Windows\Minidump"
+        ]
+        size = 0
+        for path in paths:
+            size += self._safe_delete(path)
+        self.stats['cleaned_mb'] += size
+
+    def clear_shader_cache(self):
+        self.substatus.emit("Removing shader cache")
+        paths = [
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "D3DSCache"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "NVIDIA", "GLCache"),
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "AMD", "DxCache")
+        ]
+        size = 0
+        for path in paths:
+            size += self._safe_delete(path)
+        self.stats['cleaned_mb'] += size
+
+    def clear_browser_cache(self):
+        self.substatus.emit("Refreshing browser caches")
+        local = os.environ.get("LOCALAPPDATA", "")
+        paths = [
+            os.path.join(local, "Google", "Chrome", "User Data", "Default", "Cache"),
+            os.path.join(local, "Google", "Chrome", "User Data", "Default", "Code Cache"),
+            os.path.join(local, "Microsoft", "Edge", "User Data", "Default", "Cache"),
+            os.path.join(local, "Microsoft", "Edge", "User Data", "Default", "Code Cache")
+        ]
+        size = 0
+        for path in paths:
+            size += self._safe_delete(path)
+        self.stats['cleaned_mb'] += size
+
+    def clear_delivery_optimization_cache(self):
+        self.substatus.emit("Clearing delivery optimization cache")
+        path = r"C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache"
+        self.stats['cleaned_mb'] += self._safe_delete(path)
+
+    def clear_windows_update_cache(self):
+        self.substatus.emit("Clearing Windows Update cache")
+        cmds = [
+            "net stop wuauserv",
+            "net stop bits"
+        ]
+        for cmd in cmds:
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10)
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\SoftwareDistribution\Download")
+        for cmd in reversed(cmds):
+            subprocess.run(cmd.replace("stop", "start"), shell=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=10)
 
     # ===============================
     # NETWORK OPTIMIZATIONS
@@ -395,6 +528,17 @@ class OptimizerWorker(QObject):
             r'reg add "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d 0 /f',
             shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
         )
+
+    def optimize_notifications(self):
+        self.substatus.emit("Reducing Windows tips and suggestions")
+        cmds = [
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v SubscribedContent-338389Enabled /t REG_DWORD /d 0 /f',
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v SubscribedContent-338388Enabled /t REG_DWORD /d 0 /f',
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager" /v SystemPaneSuggestionsEnabled /t REG_DWORD /d 0 /f'
+        ]
+        for cmd in cmds:
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, timeout=5)
 
     # ===============================
     # SERVICES & TELEMETRY
@@ -802,11 +946,13 @@ class OptimizerUI(GalaxyBackground):
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
         self.time_card = StatCard("Time", "0", "sec")
+        self.boost_card = StatCard("Boost", "0", "%")
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
         stats_layout.addWidget(self.optimized_card)
         stats_layout.addWidget(self.time_card)
+        stats_layout.addWidget(self.boost_card)
         stats_layout.addStretch()
 
         # Button
@@ -828,6 +974,10 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
 
+        self.ai_status = QLabel("AI ready: adaptive optimization online")
+        self.ai_status.setFont(QFont("Segoe UI", 10))
+        self.ai_status.setStyleSheet("color: #fecaca;")
+
         # Layout assembly
         layout.addStretch(1)
         layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -840,6 +990,7 @@ class OptimizerUI(GalaxyBackground):
         layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
         layout.addStretch(1)
 
     def start_optimization(self):
@@ -853,6 +1004,7 @@ class OptimizerUI(GalaxyBackground):
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
+        self.worker.insight.connect(self.update_insight)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
         
@@ -873,6 +1025,9 @@ class OptimizerUI(GalaxyBackground):
     def update_substatus(self, text):
         self.substatus.setText(text)
 
+    def update_insight(self, text):
+        self.ai_status.setText(text)
+
     def finish_optimization(self, stats):
         self.status.setText("✨ Optimization Complete!")
         self.substatus.setText("Your system has been optimized successfully")
@@ -881,6 +1036,7 @@ class OptimizerUI(GalaxyBackground):
         self.cleaned_card.set_value(f"{stats['cleaned_mb']:.0f}")
         self.optimized_card.set_value(stats['optimizations_applied'])
         self.time_card.set_value(f"{stats['duration']:.1f}")
+        self.boost_card.set_value(stats['boost_score'])
         
         # Big particle burst
         self.add_particle_burst(self.width()//2, self.height()//2, 50)
@@ -894,6 +1050,8 @@ class OptimizerUI(GalaxyBackground):
             f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
             f"• Optimizations: {stats['optimizations_applied']}\n"
             f"• Duration: {stats['duration']:.1f}s\n"
+            f"• Boost Score: {stats['boost_score']}%\n"
+            f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
             f"• Errors: {stats['errors']}\n"
             f"• Skipped: {stats['skipped']} (advanced features)"
         )
