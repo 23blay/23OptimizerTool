@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v1.4"
+VERSION = "v1.6"
 
 SAFE_MODE = True
 CREATE_RESTORE_POINT = True
@@ -72,6 +72,7 @@ class OptimizerWorker(QObject):
     status = pyqtSignal(str)
     substatus = pyqtSignal(str)
     insight = pyqtSignal(str)
+    profile = pyqtSignal(dict)
     done = pyqtSignal(dict)
     error = pyqtSignal(str)
 
@@ -84,7 +85,8 @@ class OptimizerWorker(QObject):
             'skipped': 0,
             'duration': 0,
             'focus': '',
-            'tier': ''
+            'tier': '',
+            'disk_free_gb': 0
         }
         self.ai_profile = {}
 
@@ -103,7 +105,9 @@ class OptimizerWorker(QObject):
             self.ai_profile = self.build_ai_profile()
             self.stats['focus'] = ", ".join(self.ai_profile["focus"])
             self.stats['tier'] = self.ai_profile["tier"]
+            self.stats['disk_free_gb'] = self.ai_profile["disk_free"]
             self.insight.emit(self.ai_profile["tagline"])
+            self.profile.emit(self.ai_profile)
             time.sleep(0.4)
             
             # Create restore point if enabled
@@ -148,6 +152,8 @@ class OptimizerWorker(QObject):
             (self.clear_spooler_cache, "Clearing print spooler cache", True),
             (self.clear_cbs_logs, "Clearing system servicing logs", True),
             (self.clear_dism_logs, "Clearing DISM logs", True),
+            (self.clear_icon_cache, "Clearing icon cache", True),
+            (self.clear_windows_update_cache, "Clearing Windows Update cache", True),
 
             # Cleanup - All Safe
             (self.clear_temp, "Cleaning temporary files", True),
@@ -174,6 +180,7 @@ class OptimizerWorker(QObject):
             (self.optimize_startup, "Optimizing startup", True),
             (self.reduce_menu_delay, "Reducing menu delays", True),
             (self.optimize_notifications, "Reducing Windows suggestions", True),
+            (self.enable_storage_sense, "Enabling Storage Sense", True),
             
             # Services - Safe
             (self.disable_telemetry, "Disabling telemetry", True),
@@ -413,6 +420,25 @@ class OptimizerWorker(QObject):
         path = r"C:\Windows\SoftwareDistribution\DeliveryOptimization\Cache"
         self.stats['cleaned_mb'] += self._safe_delete(path)
 
+    def clear_icon_cache(self):
+        self.substatus.emit("Clearing Windows icon cache")
+        icon_path = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Explorer")
+        self.stats['cleaned_mb'] += self._safe_delete(icon_path, "iconcache_*.db")
+
+    def clear_windows_update_cache(self):
+        self.substatus.emit("Clearing Windows Update download cache")
+        for svc in ("wuauserv", "bits", "dosvc"):
+            subprocess.run(
+                f"net stop {svc}",
+                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
+            )
+        self.stats['cleaned_mb'] += self._safe_delete(r"C:\Windows\SoftwareDistribution\Download")
+        for svc in ("wuauserv", "bits", "dosvc"):
+            subprocess.run(
+                f"net start {svc}",
+                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
+            )
+
 
     # ===============================
     # NETWORK OPTIMIZATIONS
@@ -528,6 +554,14 @@ class OptimizerWorker(QObject):
         for cmd in cmds:
             subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, timeout=5)
+
+    def enable_storage_sense(self):
+        self.substatus.emit("Enabling Storage Sense automation")
+        subprocess.run(
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy" '
+            r'/v 01 /t REG_DWORD /d 1 /f',
+            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
+        )
 
     # ===============================
     # SERVICES & TELEMETRY
@@ -669,8 +703,9 @@ class GalaxyBackground(QWidget):
             })
         
         self.timer = QTimer(self)
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self.animate)
-        self.timer.start(30)
+        self.timer.start(16)
 
     def add_particle_burst(self, x, y, count=20):
         """Add particle burst effect"""
@@ -876,6 +911,7 @@ class AnimatedButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self._glow_intensity = 0
+        self._base_text = text
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Opacity effect
@@ -883,12 +919,20 @@ class AnimatedButton(QPushButton):
         self.setGraphicsEffect(self.opacity_effect)
         
         # Pulse animation
-        self.pulse_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.pulse_anim.setDuration(1500)
-        self.pulse_anim.setStartValue(0.8)
-        self.pulse_anim.setEndValue(1.0)
-        self.pulse_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self.pulse_anim.finished.connect(self._reverse_pulse)
+        self.pulse_anim = QSequentialAnimationGroup(self)
+        pulse_up = QPropertyAnimation(self.opacity_effect, b"opacity")
+        pulse_up.setDuration(1400)
+        pulse_up.setStartValue(0.82)
+        pulse_up.setEndValue(1.0)
+        pulse_up.setEasingCurve(QEasingCurve.Type.InOutSine)
+        pulse_down = QPropertyAnimation(self.opacity_effect, b"opacity")
+        pulse_down.setDuration(1400)
+        pulse_down.setStartValue(1.0)
+        pulse_down.setEndValue(0.82)
+        pulse_down.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.pulse_anim.addAnimation(pulse_up)
+        self.pulse_anim.addAnimation(pulse_down)
+        self.pulse_anim.setLoopCount(-1)
         
         # Glow animation
         self.glow_anim = QPropertyAnimation(self, b"glow_intensity")
@@ -899,20 +943,18 @@ class AnimatedButton(QPushButton):
         
         self.update_style()
     
-    def _reverse_pulse(self):
-        if self.pulse_anim.direction() == QPropertyAnimation.Direction.Forward:
-            self.pulse_anim.setDirection(QPropertyAnimation.Direction.Backward)
-        else:
-            self.pulse_anim.setDirection(QPropertyAnimation.Direction.Forward)
-        self.pulse_anim.start()
-        
     def start_pulse(self):
-        self.pulse_anim.setDirection(QPropertyAnimation.Direction.Forward)
         self.pulse_anim.start()
         
     def stop_pulse(self):
         self.pulse_anim.stop()
         self.opacity_effect.setOpacity(1.0)
+
+    def set_busy(self, busy: bool):
+        if busy:
+            self.setText("OPTIMIZING...")
+        else:
+            self.setText(self._base_text)
     
     @pyqtProperty(int)
     def glow_intensity(self):
@@ -996,7 +1038,7 @@ class OptimizerUI(GalaxyBackground):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} – {VERSION}")
-        self.setFixedSize(1000, 700)
+        self.setFixedSize(1100, 760)
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -1011,9 +1053,22 @@ class OptimizerUI(GalaxyBackground):
         title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
         title.setStyleSheet("color: white; letter-spacing: 2px;")
 
-        subtitle = PulseLabel("Safe & Adaptive System Optimization")
+        subtitle = PulseLabel("One-click system optimization")
         subtitle.setFont(QFont("Segoe UI", 12))
         subtitle.setStyleSheet("color: #e5e7eb;")
+
+        badges_layout = QHBoxLayout()
+        badges_layout.setSpacing(10)
+        badges_layout.addStretch()
+        for badge_text in ("One-Click", "Windows 10/11", "Safe Optimizations", "Performance"):
+            badge = QLabel(badge_text)
+            badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+            badge.setStyleSheet(
+                "color: #fecaca; background: rgba(127, 29, 29, 0.55);"
+                "padding: 4px 10px; border-radius: 10px; border: 1px solid #7f1d1d;"
+            )
+            badges_layout.addWidget(badge)
+        badges_layout.addStretch()
 
         header_line = QFrame()
         header_line.setFixedHeight(2)
@@ -1025,16 +1080,20 @@ class OptimizerUI(GalaxyBackground):
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
-        self.cleaned_card.setFixedSize(180, 80)
-        self.optimized_card.setFixedSize(180, 80)
+        self.disk_card = StatCard("Free Space", "0", "GB")
+        self.tier_card = StatCard("AI Tier", "--", "")
+        for card in (self.cleaned_card, self.optimized_card, self.disk_card, self.tier_card):
+            card.setFixedSize(170, 80)
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
         stats_layout.addWidget(self.optimized_card)
+        stats_layout.addWidget(self.disk_card)
+        stats_layout.addWidget(self.tier_card)
         stats_layout.addStretch()
 
         # Button
-        self.button = AnimatedButton("OPTIMIZE NOW")
+        self.button = AnimatedButton("START OPTIMIZATION")
         self.button.setMinimumWidth(320)
         self.button.start_pulse()
         self.button.clicked.connect(self.start_optimization)
@@ -1043,23 +1102,29 @@ class OptimizerUI(GalaxyBackground):
         self.progress = GlowProgressBar()
         self.progress.setFixedWidth(600)
         self.progress.setValue(0)
+        self.progress.setFormat("Ready")
 
         # Status labels
         self.status = QLabel("Ready to optimize")
         self.status.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         self.status.setStyleSheet("color: #f87171; letter-spacing: 0.5px;")
 
-        self.substatus = QLabel("Click the button to begin")
+        self.substatus = QLabel("Click Start to run safe optimizations")
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
 
-        self.ai_status = PulseLabel("AI ready: adaptive optimization online", min_opacity=0.5, max_opacity=0.9)
+        self.ai_status = PulseLabel("AI ready: adaptive profile online", min_opacity=0.55, max_opacity=0.95)
         self.ai_status.setFont(QFont("Segoe UI", 10))
         self.ai_status.setStyleSheet("color: #fecaca;")
+
+        self.safety_note = QLabel("Restore point enabled for safe rollback")
+        self.safety_note.setFont(QFont("Segoe UI", 9))
+        self.safety_note.setStyleSheet("color: #fcd34d;")
 
         # Layout assembly
         content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addLayout(badges_layout)
         content_layout.addWidget(header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
@@ -1068,6 +1133,7 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
@@ -1077,8 +1143,11 @@ class OptimizerUI(GalaxyBackground):
         # Visual feedback
         self.button.stop_pulse()
         self.button.setEnabled(False)
+        self.button.set_busy(True)
         self.add_particle_burst(self.width()//2, self.height()//2 + 50, 30)
         self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
+        self.progress.setValue(0)
+        self.progress.setFormat("Optimizing... %p%")
         
         # Start worker
         self.worker = OptimizerWorker()
@@ -1086,6 +1155,7 @@ class OptimizerUI(GalaxyBackground):
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
         self.worker.insight.connect(self.update_insight)
+        self.worker.profile.connect(self.update_profile)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
         
@@ -1110,6 +1180,10 @@ class OptimizerUI(GalaxyBackground):
     def update_insight(self, text):
         self.ai_status.setText(text)
 
+    def update_profile(self, profile):
+        self.disk_card.set_value(profile.get("disk_free", 0))
+        self.tier_card.set_value(profile.get("tier", "--"))
+
     def finish_optimization(self, stats):
         self.status.setText("✨ Optimization Complete!")
         self.substatus.setText("Your system has been optimized successfully")
@@ -1117,9 +1191,14 @@ class OptimizerUI(GalaxyBackground):
         # Update stat cards
         self.cleaned_card.set_value(f"{stats['cleaned_mb']:.0f}")
         self.optimized_card.set_value(stats['optimizations_applied'])
+        self.disk_card.set_value(stats.get("disk_free_gb", 0))
+        self.tier_card.set_value(stats.get("tier", "--"))
         
-        # Big particle burst
-        self.add_particle_burst(self.width()//2, self.height()//2, 50)
+        self.progress.setValue(100)
+        self.progress.setFormat("Complete")
+
+        # Subtle particle burst
+        self.add_particle_burst(self.width()//2, self.height()//2, 24)
         
         # Show summary
         msg = QMessageBox(self)
@@ -1131,6 +1210,7 @@ class OptimizerUI(GalaxyBackground):
             f"• Optimizations: {stats['optimizations_applied']}\n"
             f"• Duration: {stats['duration']:.1f}s\n"
             f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
+            f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
             f"• Errors: {stats['errors']}\n"
             f"• Skipped: {stats['skipped']} (advanced features)"
         )
@@ -1158,16 +1238,20 @@ class OptimizerUI(GalaxyBackground):
         
         # Re-enable button
         self.button.setEnabled(True)
+        self.button.set_busy(False)
         self.button.start_pulse()
         self.progress.setValue(0)
+        self.progress.setFormat("Ready")
 
     def handle_error(self, error_msg):
         self.status.setText("❌ Error occurred")
         self.substatus.setText(error_msg)
+        self.progress.setFormat("Error")
         
         QMessageBox.critical(self, "Error", f"An error occurred:\n{error_msg}")
         
         self.button.setEnabled(True)
+        self.button.set_busy(False)
         self.button.start_pulse()
 
 # ===============================
@@ -1191,5 +1275,6 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     win = OptimizerUI()
     win.show()
+
 
     sys.exit(app.exec())
