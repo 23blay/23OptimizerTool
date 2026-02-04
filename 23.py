@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v1.5"
+VERSION = "v1.6"
 
 SAFE_MODE = True
 CREATE_RESTORE_POINT = True
@@ -703,8 +703,9 @@ class GalaxyBackground(QWidget):
             })
         
         self.timer = QTimer(self)
+        self.timer.setTimerType(Qt.TimerType.PreciseTimer)
         self.timer.timeout.connect(self.animate)
-        self.timer.start(30)
+        self.timer.start(16)
 
     def add_particle_burst(self, x, y, count=20):
         """Add particle burst effect"""
@@ -1045,14 +1046,14 @@ class OptimizerUI(GalaxyBackground):
         title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
         title.setStyleSheet("color: white; letter-spacing: 2px;")
 
-        subtitle = PulseLabel("One-click universal optimization suite")
+        subtitle = PulseLabel("One-click system optimization")
         subtitle.setFont(QFont("Segoe UI", 12))
         subtitle.setStyleSheet("color: #e5e7eb;")
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(10)
         badges_layout.addStretch()
-        for badge_text in ("One-Click", "Safe Mode", "Windows 10/11", "Multi-Purpose"):
+        for badge_text in ("One-Click", "Windows 10/11", "Safe Optimizations", "Performance"):
             badge = QLabel(badge_text)
             badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             badge.setStyleSheet(
@@ -1085,7 +1086,7 @@ class OptimizerUI(GalaxyBackground):
         stats_layout.addStretch()
 
         # Button
-        self.button = AnimatedButton("RUN UNIVERSAL OPTIMIZER")
+        self.button = AnimatedButton("START OPTIMIZATION")
         self.button.setMinimumWidth(320)
         self.button.start_pulse()
         self.button.clicked.connect(self.start_optimization)
@@ -1094,21 +1095,22 @@ class OptimizerUI(GalaxyBackground):
         self.progress = GlowProgressBar()
         self.progress.setFixedWidth(600)
         self.progress.setValue(0)
+        self.progress.setFormat("Optimizing... %p%")
 
         # Status labels
         self.status = QLabel("Ready to optimize")
         self.status.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         self.status.setStyleSheet("color: #f87171; letter-spacing: 0.5px;")
 
-        self.substatus = QLabel("Click the button to begin")
+        self.substatus = QLabel("Click Start to run safe optimizations")
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
 
-        self.ai_status = PulseLabel("AI ready: multi-purpose optimization online", min_opacity=0.5, max_opacity=0.9)
+        self.ai_status = PulseLabel("AI ready: adaptive profile online", min_opacity=0.55, max_opacity=0.95)
         self.ai_status.setFont(QFont("Segoe UI", 10))
         self.ai_status.setStyleSheet("color: #fecaca;")
 
-        self.safety_note = QLabel("✔ All actions are safe for Windows 10/11 and reversible with Restore Point")
+        self.safety_note = QLabel("Restore point enabled for safe rollback")
         self.safety_note.setFont(QFont("Segoe UI", 9))
         self.safety_note.setStyleSheet("color: #fcd34d;")
 
@@ -1182,8 +1184,8 @@ class OptimizerUI(GalaxyBackground):
         self.disk_card.set_value(stats.get("disk_free_gb", 0))
         self.tier_card.set_value(stats.get("tier", "--"))
         
-        # Big particle burst
-        self.add_particle_burst(self.width()//2, self.height()//2, 50)
+        # Subtle particle burst
+        self.add_particle_burst(self.width()//2, self.height()//2, 24)
         
         # Show summary
         msg = QMessageBox(self)
