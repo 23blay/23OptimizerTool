@@ -9,7 +9,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearGradient
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QPushButton, QLabel,
+    QApplication, QWidget, QPushButton, QLabel, QCheckBox,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
     QHBoxLayout, QFrame
 )
@@ -689,6 +689,7 @@ class GalaxyBackground(QWidget):
         self.pulse_rings = []
         self.nebula_offset = 0
         self.scan_phase = 0
+        self.set_theme("light")
         
         # Create star field with twinkle
         for _ in range(90):
@@ -709,7 +710,7 @@ class GalaxyBackground(QWidget):
 
     def add_particle_burst(self, x, y, count=20):
         """Add particle burst effect"""
-        colors = [QColor(37, 99, 235), QColor(59, 130, 246), QColor(96, 165, 250)]
+        colors = self.particle_colors
         for _ in range(count):
             angle = random.uniform(0, 2 * 3.14159)
             speed = random.uniform(2, 6)
@@ -721,8 +722,51 @@ class GalaxyBackground(QWidget):
                 random.choice(colors)
             ))
 
-    def add_pulse_ring(self, x, y, color=QColor(96, 165, 250)):
-        self.pulse_rings.append(PulseRing(x, y, color=color))
+    def add_pulse_ring(self, x, y, color=None):
+        self.pulse_rings.append(PulseRing(x, y, color=color or self.ring_color))
+
+    def set_theme(self, theme):
+        if theme == "dark":
+            self.background_colors = (
+                QColor(16, 20, 32),
+                QColor(11, 15, 26),
+                QColor(7, 10, 18),
+            )
+            self.nebula_colors = (
+                QColor(59, 130, 246, 40),
+                QColor(148, 163, 184, 25),
+                QColor(0, 0, 0, 0),
+            )
+            self.star_color = QColor(226, 232, 240)
+            self.particle_colors = [QColor(59, 130, 246), QColor(96, 165, 250), QColor(148, 163, 184)]
+            self.comet_color = QColor(96, 165, 250)
+            self.ring_color = QColor(59, 130, 246)
+            self.glow_colors = (
+                QColor(59, 130, 246, 25),
+                QColor(37, 99, 235, 12),
+                QColor(0, 0, 0, 0),
+            )
+        else:
+            self.background_colors = (
+                QColor(246, 248, 252),
+                QColor(231, 236, 245),
+                QColor(218, 225, 237),
+            )
+            self.nebula_colors = (
+                QColor(59, 130, 246, 30),
+                QColor(148, 163, 184, 22),
+                QColor(255, 255, 255, 0),
+            )
+            self.star_color = QColor(148, 163, 184)
+            self.particle_colors = [QColor(37, 99, 235), QColor(59, 130, 246), QColor(96, 165, 250)]
+            self.comet_color = QColor(96, 165, 250)
+            self.ring_color = QColor(96, 165, 250)
+            self.glow_colors = (
+                QColor(99, 102, 241, 25),
+                QColor(59, 130, 246, 12),
+                QColor(255, 255, 255, 0),
+            )
+        self.update()
 
     def spawn_comet(self):
         if random.random() < 0.03:
@@ -783,12 +827,12 @@ class GalaxyBackground(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Soft acrylic-like background
+        # Acrylic-like background
         bg = QRadialGradient(self.width() / 2, self.height() / 2,
                             max(self.width(), self.height()))
-        bg.setColorAt(0, QColor(246, 248, 252))
-        bg.setColorAt(0.6, QColor(231, 236, 245))
-        bg.setColorAt(1, QColor(218, 225, 237))
+        bg.setColorAt(0, self.background_colors[0])
+        bg.setColorAt(0.6, self.background_colors[1])
+        bg.setColorAt(1, self.background_colors[2])
         painter.fillRect(self.rect(), bg)
 
         # Subtle light wash
@@ -797,16 +841,18 @@ class GalaxyBackground(QWidget):
             self.height()/2 + 50 * random.uniform(-1, 1),
             400
         )
-        nebula.setColorAt(0, QColor(59, 130, 246, 30))
-        nebula.setColorAt(0.6, QColor(148, 163, 184, 22))
-        nebula.setColorAt(1, QColor(255, 255, 255, 0))
+        nebula.setColorAt(0, self.nebula_colors[0])
+        nebula.setColorAt(0.6, self.nebula_colors[1])
+        nebula.setColorAt(1, self.nebula_colors[2])
         painter.fillRect(self.rect(), nebula)
 
         # Draw stars
         painter.setPen(Qt.PenStyle.NoPen)
         for star in self.stars:
             alpha = int(255 * star['brightness'])
-            painter.setBrush(QColor(148, 163, 184, min(alpha, 160)))
+            star_color = QColor(self.star_color)
+            star_color.setAlpha(min(alpha, 160))
+            painter.setBrush(star_color)
             painter.drawEllipse(QRectF(star['x'], star['y'], star['size'], star['size']))
         
         # Draw particles
@@ -825,9 +871,13 @@ class GalaxyBackground(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         for comet in self.comets:
             alpha = int(180 * comet['life'])
-            painter.setBrush(QColor(96, 165, 250, alpha))
+            comet_color = QColor(self.comet_color)
+            comet_color.setAlpha(alpha)
+            painter.setBrush(comet_color)
             painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
-            tail_pen = QPen(QColor(96, 165, 250, max(40, alpha // 2)), 2)
+            tail_color = QColor(self.comet_color)
+            tail_color.setAlpha(max(40, alpha // 2))
+            tail_pen = QPen(tail_color, 2)
             painter.setPen(tail_pen)
             painter.drawLine(
                 int(comet['x']),
@@ -848,9 +898,9 @@ class GalaxyBackground(QWidget):
 
         # Soft glow overlay
         glow = QRadialGradient(self.width() * 0.7, self.height() * 0.25, self.width() * 0.8)
-        glow.setColorAt(0, QColor(99, 102, 241, 25))
-        glow.setColorAt(0.7, QColor(59, 130, 246, 12))
-        glow.setColorAt(1, QColor(255, 255, 255, 0))
+        glow.setColorAt(0, self.glow_colors[0])
+        glow.setColorAt(0.7, self.glow_colors[1])
+        glow.setColorAt(1, self.glow_colors[2])
         painter.fillRect(self.rect(), glow)
 
 # ===============================
@@ -860,11 +910,7 @@ class StatCard(QFrame):
     def __init__(self, title, value="0", unit=""):
         super().__init__()
         self.setFixedSize(160, 80)
-        self.setStyleSheet(
-            "QFrame { background: rgba(255, 255, 255, 0.78);"
-            "border: 1px solid #d0d7e2; border-radius: 14px; }"
-        )
-        
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(6, 6, 6, 6)
         layout.setSpacing(2)
@@ -874,22 +920,41 @@ class StatCard(QFrame):
         self.value_label.setStyleSheet("color: #0f172a; border: none;")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        unit_label = QLabel(unit)
-        unit_label.setFont(QFont("Segoe UI", 10))
-        unit_label.setStyleSheet("color: #475569; border: none;")
-        unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.unit_label = QLabel(unit)
+        self.unit_label.setFont(QFont("Segoe UI", 10))
+        self.unit_label.setStyleSheet("color: #475569; border: none;")
+        self.unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 9))
-        title_label.setStyleSheet("color: #64748b; border: none;")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label = QLabel(title)
+        self.title_label.setFont(QFont("Segoe UI", 9))
+        self.title_label.setStyleSheet("color: #64748b; border: none;")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         layout.addWidget(self.value_label)
-        layout.addWidget(unit_label)
-        layout.addWidget(title_label)
+        layout.addWidget(self.unit_label)
+        layout.addWidget(self.title_label)
+
+        self.apply_palette({
+            "card_bg": "rgba(255, 255, 255, 0.78)",
+            "card_border": "#d0d7e2",
+            "value": "#0f172a",
+            "unit": "#475569",
+            "title": "#64748b",
+        })
     
     def set_value(self, value):
         self.value_label.setText(str(value))
+
+    def apply_palette(self, palette):
+        self.setStyleSheet(
+            "QFrame {"
+            f"background: {palette['card_bg']};"
+            f"border: 1px solid {palette['card_border']};"
+            "border-radius: 14px; }"
+        )
+        self.value_label.setStyleSheet(f"color: {palette['value']}; border: none;")
+        self.unit_label.setStyleSheet(f"color: {palette['unit']}; border: none;")
+        self.title_label.setStyleSheet(f"color: {palette['title']}; border: none;")
 
 # ===============================
 # PULSE LABEL
@@ -915,6 +980,7 @@ class AnimatedButton(QPushButton):
         super().__init__(text, parent)
         self._glow_intensity = 0
         self._base_text = text
+        self.palette_tokens = {}
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Opacity effect
@@ -944,7 +1010,18 @@ class AnimatedButton(QPushButton):
         self.glow_anim.setEndValue(30)
         self.glow_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         
-        self.update_style()
+        self.set_palette({
+            "bg_start": "#2563eb",
+            "bg_end": "#3b82f6",
+            "hover_start": "#3b82f6",
+            "hover_end": "#60a5fa",
+            "pressed_start": "#1d4ed8",
+            "pressed_end": "#2563eb",
+            "disabled_bg": "#cbd5f5",
+            "disabled_text": "#475569",
+            "border": "rgba(255, 255, 255, 0.6)",
+            "text": "#f8fafc",
+        })
     
     def start_pulse(self):
         self.pulse_anim.start()
@@ -974,30 +1051,34 @@ class AnimatedButton(QPushButton):
             f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #2563eb, stop:1 #3b82f6);
-                color: #f8fafc;
+                    stop:0 {self.palette_tokens['bg_start']}, stop:1 {self.palette_tokens['bg_end']});
+                color: {self.palette_tokens['text']};
                 font-size: 17px;
                 font-weight: 600;
                 font-family: 'Segoe UI';
                 padding: 18px 50px;
                 border-radius: 14px;
-                border: 1px solid rgba(255, 255, 255, 0.6);
+                border: 1px solid {self.palette_tokens['border']};
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #3b82f6, stop:1 #60a5fa);
+                    stop:0 {self.palette_tokens['hover_start']}, stop:1 {self.palette_tokens['hover_end']});
             }}
             QPushButton:pressed {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #1d4ed8, stop:1 #2563eb);
+                    stop:0 {self.palette_tokens['pressed_start']}, stop:1 {self.palette_tokens['pressed_end']});
             }}
             QPushButton:disabled {{
-                background: #cbd5f5;
-                color: #475569;
-                border: 1px solid #cbd5f5;
+                background: {self.palette_tokens['disabled_bg']};
+                color: {self.palette_tokens['disabled_text']};
+                border: 1px solid {self.palette_tokens['disabled_bg']};
             }}
             """
         )
+
+    def set_palette(self, palette_tokens):
+        self.palette_tokens = palette_tokens
+        self.update_style()
     
     def enterEvent(self, event):
         self.glow_anim.setDirection(QPropertyAnimation.Direction.Forward)
@@ -1018,21 +1099,31 @@ class GlowProgressBar(QProgressBar):
         self.setFixedHeight(24)
         self.setTextVisible(True)
         self.setFormat("%p%")
-        self.setStyleSheet("""
-            QProgressBar {
-                background: rgba(255, 255, 255, 0.65);
+        self.apply_palette({
+            "bg": "rgba(255, 255, 255, 0.65)",
+            "border": "#d0d7e2",
+            "text": "#0f172a",
+            "chunk_start": "#2563eb",
+            "chunk_mid": "#3b82f6",
+            "chunk_end": "#60a5fa",
+        })
+
+    def apply_palette(self, palette):
+        self.setStyleSheet(f"""
+            QProgressBar {{
+                background: {palette['bg']};
                 border-radius: 12px;
-                color: #0f172a;
-                border: 1px solid #d0d7e2;
+                color: {palette['text']};
+                border: 1px solid {palette['border']};
                 font-weight: 600;
                 font-family: 'Segoe UI';
                 text-align: center;
-            }
-            QProgressBar::chunk {
+            }}
+            QProgressBar::chunk {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #2563eb, stop:0.5 #3b82f6, stop:1 #60a5fa);
+                    stop:0 {palette['chunk_start']}, stop:0.5 {palette['chunk_mid']}, stop:1 {palette['chunk_end']});
                 border-radius: 10px;
-            }
+            }}
         """)
 
 # ===============================
@@ -1043,6 +1134,41 @@ class OptimizerUI(GalaxyBackground):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} – {VERSION}")
         self.setFixedSize(1100, 760)
+        self.theme = "light"
+        self.theme_palette = {
+            "light": {
+                "text_primary": "#0f172a",
+                "text_secondary": "#475569",
+                "text_muted": "#64748b",
+                "accent": "#2563eb",
+                "accent_soft": "#60a5fa",
+                "success": "#0f766e",
+                "badge_bg": "rgba(255, 255, 255, 0.85)",
+                "badge_border": "#d0d7e2",
+                "card_bg": "rgba(255, 255, 255, 0.78)",
+                "card_border": "#d0d7e2",
+                "progress_bg": "rgba(255, 255, 255, 0.65)",
+                "progress_border": "#d0d7e2",
+                "dialog_bg": "#f8fafc",
+                "dialog_text": "#0f172a",
+            },
+            "dark": {
+                "text_primary": "#e2e8f0",
+                "text_secondary": "#cbd5f5",
+                "text_muted": "#94a3b8",
+                "accent": "#60a5fa",
+                "accent_soft": "#93c5fd",
+                "success": "#2dd4bf",
+                "badge_bg": "rgba(15, 23, 42, 0.85)",
+                "badge_border": "#1e293b",
+                "card_bg": "rgba(15, 23, 42, 0.75)",
+                "card_border": "#1e293b",
+                "progress_bg": "rgba(15, 23, 42, 0.7)",
+                "progress_border": "#1e293b",
+                "dialog_bg": "#0f172a",
+                "dialog_text": "#e2e8f0",
+            },
+        }
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -1053,17 +1179,18 @@ class OptimizerUI(GalaxyBackground):
         content_layout.setContentsMargins(10, 0, 10, 0)
 
         # Header
-        title = QLabel(APP_NAME)
-        title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
-        title.setStyleSheet("color: #0f172a; letter-spacing: 1px;")
+        self.title_label = QLabel(APP_NAME)
+        self.title_label.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: #0f172a; letter-spacing: 1px;")
 
-        subtitle = PulseLabel("One-click system optimization")
-        subtitle.setFont(QFont("Segoe UI", 12))
-        subtitle.setStyleSheet("color: #475569;")
+        self.subtitle_label = PulseLabel("One-click system optimization")
+        self.subtitle_label.setFont(QFont("Segoe UI", 12))
+        self.subtitle_label.setStyleSheet("color: #475569;")
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(10)
         badges_layout.addStretch()
+        self.badges = []
         for badge_text in ("One-Click", "Windows 10/11", "Safe Optimizations", "Performance"):
             badge = QLabel(badge_text)
             badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
@@ -1072,11 +1199,24 @@ class OptimizerUI(GalaxyBackground):
                 "padding: 4px 10px; border-radius: 10px; border: 1px solid #d0d7e2;"
             )
             badges_layout.addWidget(badge)
+            self.badges.append(badge)
+        self.theme_toggle = QCheckBox("Dark mode")
+        self.theme_toggle.setChecked(False)
+        self.theme_toggle.stateChanged.connect(self.toggle_theme)
+        self.theme_toggle.setStyleSheet(
+            "QCheckBox { color: #1e293b; font-family: 'Segoe UI'; font-size: 9px; }"
+            "QCheckBox::indicator { width: 34px; height: 18px; }"
+            "QCheckBox::indicator:unchecked {"
+            "border-radius: 9px; background: #e2e8f0; border: 1px solid #cbd5f5; }"
+            "QCheckBox::indicator:checked {"
+            "border-radius: 9px; background: #2563eb; border: 1px solid #2563eb; }"
+        )
+        badges_layout.addWidget(self.theme_toggle)
         badges_layout.addStretch()
 
-        header_line = QFrame()
-        header_line.setFixedHeight(2)
-        header_line.setStyleSheet(
+        self.header_line = QFrame()
+        self.header_line.setFixedHeight(2)
+        self.header_line.setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
             "stop:0 rgba(59,130,246,0), stop:0.5 rgba(59,130,246,0.6), "
             "stop:1 rgba(59,130,246,0)); border-radius: 1px;"
@@ -1130,10 +1270,10 @@ class OptimizerUI(GalaxyBackground):
         self.safety_note.setStyleSheet("color: #0f766e;")
 
         # Layout assembly
-        content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addLayout(badges_layout)
-        content_layout.addWidget(header_line)
+        content_layout.addWidget(self.header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
         content_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -1146,6 +1286,7 @@ class OptimizerUI(GalaxyBackground):
         layout.addStretch(1)
         layout.addLayout(content_layout)
         layout.addStretch(1)
+        self.apply_theme("light")
 
     def start_optimization(self):
         # Visual feedback
@@ -1168,6 +1309,88 @@ class OptimizerUI(GalaxyBackground):
         self.worker.error.connect(self.handle_error)
         
         Thread(target=self.worker.run, daemon=True).start()
+
+    def toggle_theme(self, state):
+        self.apply_theme("dark" if state == Qt.CheckState.Checked.value else "light")
+
+    def apply_theme(self, theme):
+        self.theme = theme
+        palette = self.theme_palette[theme]
+        self.set_theme(theme)
+
+        self.theme_toggle.blockSignals(True)
+        self.theme_toggle.setChecked(theme == "dark")
+        self.theme_toggle.blockSignals(False)
+
+        self.title_label.setStyleSheet(
+            f"color: {palette['text_primary']}; letter-spacing: 1px;"
+        )
+        self.subtitle_label.setStyleSheet(f"color: {palette['text_secondary']};")
+
+        badge_style = (
+            f"color: {palette['text_primary']};"
+            f"background: {palette['badge_bg']};"
+            f"border: 1px solid {palette['badge_border']};"
+            "padding: 4px 10px; border-radius: 10px;"
+        )
+        for badge in self.badges:
+            badge.setStyleSheet(badge_style)
+
+        self.header_line.setStyleSheet(
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
+            f"stop:0 rgba(59,130,246,0), stop:0.5 {palette['accent']}, "
+            "stop:1 rgba(59,130,246,0)); border-radius: 1px;"
+        )
+
+        self.status.setStyleSheet(
+            f"color: {palette['accent']}; letter-spacing: 0.4px;"
+        )
+        self.substatus.setStyleSheet(f"color: {palette['text_secondary']};")
+        self.ai_status.setStyleSheet(f"color: {palette['text_muted']};")
+        self.safety_note.setStyleSheet(f"color: {palette['success']};")
+
+        self.theme_toggle.setStyleSheet(
+            "QCheckBox {"
+            f"color: {palette['text_primary']}; font-family: 'Segoe UI'; font-size: 9px; }}"
+            "QCheckBox::indicator { width: 34px; height: 18px; }"
+            "QCheckBox::indicator:unchecked {"
+            f"border-radius: 9px; background: {palette['badge_bg']};"
+            f" border: 1px solid {palette['badge_border']}; }}"
+            "QCheckBox::indicator:checked {"
+            f"border-radius: 9px; background: {palette['accent']};"
+            f" border: 1px solid {palette['accent']}; }}"
+        )
+
+        self.button.set_palette({
+            "bg_start": palette["accent"],
+            "bg_end": palette["accent_soft"],
+            "hover_start": palette["accent_soft"],
+            "hover_end": "#93c5fd" if theme == "light" else "#7dd3fc",
+            "pressed_start": "#1d4ed8" if theme == "light" else "#2563eb",
+            "pressed_end": palette["accent"],
+            "disabled_bg": "#cbd5f5" if theme == "light" else "#1e293b",
+            "disabled_text": palette["text_muted"],
+            "border": "rgba(255, 255, 255, 0.6)" if theme == "light" else "#1e293b",
+            "text": "#f8fafc",
+        })
+
+        for card in (self.cleaned_card, self.optimized_card, self.disk_card, self.tier_card):
+            card.apply_palette({
+                "card_bg": palette["card_bg"],
+                "card_border": palette["card_border"],
+                "value": palette["text_primary"],
+                "unit": palette["text_secondary"],
+                "title": palette["text_muted"],
+            })
+
+        self.progress.apply_palette({
+            "bg": palette["progress_bg"],
+            "border": palette["progress_border"],
+            "text": palette["text_primary"],
+            "chunk_start": palette["accent"],
+            "chunk_mid": palette["accent_soft"],
+            "chunk_end": "#93c5fd" if theme == "light" else "#7dd3fc",
+        })
 
     def update_progress(self, value):
         self.progress.setValue(value)
@@ -1223,24 +1446,25 @@ class OptimizerUI(GalaxyBackground):
             f"• Skipped: {stats['skipped']} (advanced features)"
         )
         msg.setIcon(QMessageBox.Icon.Information)
-        msg.setStyleSheet("""
-            QMessageBox {
-                background: #f8fafc;
-            }
-            QMessageBox QLabel {
-                color: #0f172a;
+        palette = self.theme_palette[self.theme]
+        msg.setStyleSheet(f"""
+            QMessageBox {{
+                background: {palette['dialog_bg']};
+            }}
+            QMessageBox QLabel {{
+                color: {palette['dialog_text']};
                 font-family: 'Segoe UI';
-            }
-            QPushButton {
-                background: #2563eb;
+            }}
+            QPushButton {{
+                background: {palette['accent']};
                 color: #f8fafc;
                 padding: 8px 20px;
                 border-radius: 6px;
                 font-weight: 600;
-            }
-            QPushButton:hover {
-                background: #3b82f6;
-            }
+            }}
+            QPushButton:hover {{
+                background: {palette['accent_soft']};
+            }}
         """)
         msg.exec()
         
