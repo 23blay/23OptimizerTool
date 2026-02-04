@@ -911,6 +911,7 @@ class AnimatedButton(QPushButton):
     def __init__(self, text, parent=None):
         super().__init__(text, parent)
         self._glow_intensity = 0
+        self._base_text = text
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Opacity effect
@@ -918,12 +919,20 @@ class AnimatedButton(QPushButton):
         self.setGraphicsEffect(self.opacity_effect)
         
         # Pulse animation
-        self.pulse_anim = QPropertyAnimation(self.opacity_effect, b"opacity")
-        self.pulse_anim.setDuration(1500)
-        self.pulse_anim.setStartValue(0.8)
-        self.pulse_anim.setEndValue(1.0)
-        self.pulse_anim.setEasingCurve(QEasingCurve.Type.InOutSine)
-        self.pulse_anim.finished.connect(self._reverse_pulse)
+        self.pulse_anim = QSequentialAnimationGroup(self)
+        pulse_up = QPropertyAnimation(self.opacity_effect, b"opacity")
+        pulse_up.setDuration(1400)
+        pulse_up.setStartValue(0.82)
+        pulse_up.setEndValue(1.0)
+        pulse_up.setEasingCurve(QEasingCurve.Type.InOutSine)
+        pulse_down = QPropertyAnimation(self.opacity_effect, b"opacity")
+        pulse_down.setDuration(1400)
+        pulse_down.setStartValue(1.0)
+        pulse_down.setEndValue(0.82)
+        pulse_down.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self.pulse_anim.addAnimation(pulse_up)
+        self.pulse_anim.addAnimation(pulse_down)
+        self.pulse_anim.setLoopCount(-1)
         
         # Glow animation
         self.glow_anim = QPropertyAnimation(self, b"glow_intensity")
@@ -934,20 +943,18 @@ class AnimatedButton(QPushButton):
         
         self.update_style()
     
-    def _reverse_pulse(self):
-        if self.pulse_anim.direction() == QPropertyAnimation.Direction.Forward:
-            self.pulse_anim.setDirection(QPropertyAnimation.Direction.Backward)
-        else:
-            self.pulse_anim.setDirection(QPropertyAnimation.Direction.Forward)
-        self.pulse_anim.start()
-        
     def start_pulse(self):
-        self.pulse_anim.setDirection(QPropertyAnimation.Direction.Forward)
         self.pulse_anim.start()
         
     def stop_pulse(self):
         self.pulse_anim.stop()
         self.opacity_effect.setOpacity(1.0)
+
+    def set_busy(self, busy: bool):
+        if busy:
+            self.setText("OPTIMIZING...")
+        else:
+            self.setText(self._base_text)
     
     @pyqtProperty(int)
     def glow_intensity(self):
@@ -1095,7 +1102,7 @@ class OptimizerUI(GalaxyBackground):
         self.progress = GlowProgressBar()
         self.progress.setFixedWidth(600)
         self.progress.setValue(0)
-        self.progress.setFormat("Optimizing... %p%")
+        self.progress.setFormat("Ready")
 
         # Status labels
         self.status = QLabel("Ready to optimize")
@@ -1136,8 +1143,11 @@ class OptimizerUI(GalaxyBackground):
         # Visual feedback
         self.button.stop_pulse()
         self.button.setEnabled(False)
+        self.button.set_busy(True)
         self.add_particle_burst(self.width()//2, self.height()//2 + 50, 30)
         self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
+        self.progress.setValue(0)
+        self.progress.setFormat("Optimizing... %p%")
         
         # Start worker
         self.worker = OptimizerWorker()
@@ -1184,6 +1194,9 @@ class OptimizerUI(GalaxyBackground):
         self.disk_card.set_value(stats.get("disk_free_gb", 0))
         self.tier_card.set_value(stats.get("tier", "--"))
         
+        self.progress.setValue(100)
+        self.progress.setFormat("Complete")
+
         # Subtle particle burst
         self.add_particle_burst(self.width()//2, self.height()//2, 24)
         
@@ -1225,16 +1238,20 @@ class OptimizerUI(GalaxyBackground):
         
         # Re-enable button
         self.button.setEnabled(True)
+        self.button.set_busy(False)
         self.button.start_pulse()
         self.progress.setValue(0)
+        self.progress.setFormat("Ready")
 
     def handle_error(self, error_msg):
         self.status.setText("❌ Error occurred")
         self.substatus.setText(error_msg)
+        self.progress.setFormat("Error")
         
         QMessageBox.critical(self, "Error", f"An error occurred:\n{error_msg}")
         
         self.button.setEnabled(True)
+        self.button.set_busy(False)
         self.button.start_pulse()
 
 # ===============================
