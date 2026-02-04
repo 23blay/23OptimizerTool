@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearG
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame
+    QHBoxLayout, QFrame, QGraphicsDropShadowEffect
 )
 
 APP_NAME = "23 Optimizer"
@@ -824,11 +824,23 @@ class GalaxyBackground(QWidget):
 class StatCard(QFrame):
     def __init__(self, title, value="0", unit=""):
         super().__init__()
-        self.setFixedSize(160, 80)
-        self.setStyleSheet("QFrame { background: transparent; }")
+        self.setFixedSize(170, 86)
+        self.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(24, 9, 9, 0.78), stop:1 rgba(10, 5, 5, 0.92));
+                border: 1px solid rgba(248, 113, 113, 0.22);
+                border-radius: 16px;
+            }
+        """)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(26)
+        shadow.setOffset(0, 8)
+        shadow.setColor(QColor(0, 0, 0, 170))
+        self.setGraphicsEffect(shadow)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(2)
         
         self.value_label = QLabel(value)
@@ -896,6 +908,12 @@ class AnimatedButton(QPushButton):
         self.glow_anim.setStartValue(0)
         self.glow_anim.setEndValue(30)
         self.glow_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(32)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(239, 68, 68, 120))
+        self.setGraphicsEffect(shadow)
         
         self.update_style()
     
@@ -931,11 +949,11 @@ class AnimatedButton(QPushButton):
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #ef4444, stop:1 #dc2626);
                 color: white;
-                font-size: 18px;
+                font-size: 19px;
                 font-weight: bold;
                 font-family: 'Segoe UI';
-                padding: 18px 50px;
-                border-radius: 16px;
+                padding: 18px 54px;
+                border-radius: 18px;
                 border: none;
             }}
             QPushButton:hover {{
@@ -970,13 +988,14 @@ class AnimatedButton(QPushButton):
 class GlowProgressBar(QProgressBar):
     def __init__(self):
         super().__init__()
-        self.setFixedHeight(24)
+        self.setFixedHeight(26)
         self.setTextVisible(True)
         self.setFormat("%p%")
         self.setStyleSheet("""
             QProgressBar {
-                background: rgba(10, 5, 5, 0.8);
-                border-radius: 12px;
+                background: rgba(12, 6, 6, 0.8);
+                border: 1px solid rgba(248, 113, 113, 0.25);
+                border-radius: 13px;
                 color: white;
                 font-weight: bold;
                 font-family: 'Segoe UI';
@@ -1000,7 +1019,25 @@ class OptimizerUI(GalaxyBackground):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
-        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setContentsMargins(26, 26, 26, 26)
+
+        panel = QFrame()
+        panel.setStyleSheet("""
+            QFrame {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                    stop:0 rgba(15, 7, 7, 0.86), stop:1 rgba(6, 3, 3, 0.94));
+                border: 1px solid rgba(248, 113, 113, 0.18);
+                border-radius: 24px;
+            }
+        """)
+        panel_shadow = QGraphicsDropShadowEffect(panel)
+        panel_shadow.setBlurRadius(40)
+        panel_shadow.setOffset(0, 14)
+        panel_shadow.setColor(QColor(0, 0, 0, 170))
+        panel.setGraphicsEffect(panel_shadow)
+
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(28, 26, 28, 26)
 
         content_layout = QVBoxLayout()
         content_layout.setSpacing(18)
@@ -1014,6 +1051,18 @@ class OptimizerUI(GalaxyBackground):
         subtitle = PulseLabel("Safe & Adaptive System Optimization")
         subtitle.setFont(QFont("Segoe UI", 12))
         subtitle.setStyleSheet("color: #e5e7eb;")
+
+        badge = QLabel("ONE CLICK • SAFE MODE • AI TUNED")
+        badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        badge.setStyleSheet("""
+            color: #fecaca;
+            padding: 6px 16px;
+            background: rgba(127, 29, 29, 0.45);
+            border: 1px solid rgba(248, 113, 113, 0.3);
+            border-radius: 14px;
+            letter-spacing: 1px;
+        """)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         header_line = QFrame()
         header_line.setFixedHeight(2)
@@ -1060,6 +1109,7 @@ class OptimizerUI(GalaxyBackground):
         # Layout assembly
         content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
@@ -1069,8 +1119,10 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
 
+        panel_layout.addLayout(content_layout)
+
         layout.addStretch(1)
-        layout.addLayout(content_layout)
+        layout.addWidget(panel)
         layout.addStretch(1)
 
     def start_optimization(self):
