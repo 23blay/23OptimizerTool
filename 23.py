@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearG
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame, QGraphicsDropShadowEffect
+    QHBoxLayout, QFrame
 )
 
 APP_NAME = "23 Optimizer"
@@ -656,15 +656,15 @@ class GalaxyBackground(QWidget):
         self.nebula_offset = 0
         self.scan_phase = 0
         
-        # Create star field with twinkle
-        for _ in range(200):
+        # Create subtle star field
+        for _ in range(80):
             self.stars.append({
                 'x': random.randint(0, 1200),
                 'y': random.randint(0, 800),
-                'size': random.uniform(1, 3),
-                'speed': random.uniform(0.3, 1.5),
-                'brightness': random.uniform(0.3, 1.0),
-                'twinkle_speed': random.uniform(0.02, 0.08),
+                'size': random.uniform(0.8, 2.0),
+                'speed': random.uniform(0.2, 0.8),
+                'brightness': random.uniform(0.2, 0.7),
+                'twinkle_speed': random.uniform(0.01, 0.04),
                 'twinkle_phase': random.uniform(0, 6.28)
             })
         
@@ -690,14 +690,7 @@ class GalaxyBackground(QWidget):
         self.pulse_rings.append(PulseRing(x, y, color=color))
 
     def spawn_comet(self):
-        if random.random() < 0.03:
-            self.comets.append({
-                'x': random.randint(0, self.width()),
-                'y': random.randint(-200, 0),
-                'vx': random.uniform(-3, -1),
-                'vy': random.uniform(4, 7),
-                'life': 1.0
-            })
+        return
 
     def animate(self):
         # Animate stars with twinkle
@@ -734,11 +727,6 @@ class GalaxyBackground(QWidget):
             if comet['life'] <= 0 or comet['x'] < -200 or comet['y'] > self.height() + 200:
                 self.comets.remove(comet)
 
-        # Nebula drift
-        self.nebula_offset += 0.5
-        if self.nebula_offset > 360:
-            self.nebula_offset = 0
-
         self.scan_phase = (self.scan_phase + 1) % 360
         self.spawn_comet()
 
@@ -748,24 +736,13 @@ class GalaxyBackground(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Pure black background
+        # Clean background gradient
         bg = QRadialGradient(self.width()/2, self.height()/2,
                             max(self.width(), self.height()))
-        bg.setColorAt(0, QColor(10, 10, 10))
-        bg.setColorAt(0.5, QColor(5, 5, 5))
-        bg.setColorAt(1, QColor(0, 0, 0))
+        bg.setColorAt(0, QColor(12, 12, 12))
+        bg.setColorAt(0.7, QColor(8, 8, 8))
+        bg.setColorAt(1, QColor(4, 4, 4))
         painter.fillRect(self.rect(), bg)
-
-        # Red nebula effect
-        nebula = QRadialGradient(
-            self.width()/2 + 50 * random.uniform(-1, 1),
-            self.height()/2 + 50 * random.uniform(-1, 1),
-            400
-        )
-        nebula.setColorAt(0, QColor(220, 38, 38, 35))
-        nebula.setColorAt(0.5, QColor(185, 28, 28, 20))
-        nebula.setColorAt(1, QColor(0, 0, 0, 0))
-        painter.fillRect(self.rect(), nebula)
 
         # Draw stars
         painter.setPen(Qt.PenStyle.NoPen)
@@ -786,21 +763,6 @@ class GalaxyBackground(QWidget):
                 particle.size, particle.size
             ))
 
-        # Draw comets
-        painter.setPen(Qt.PenStyle.NoPen)
-        for comet in self.comets:
-            alpha = int(180 * comet['life'])
-            painter.setBrush(QColor(248, 113, 113, alpha))
-            painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
-            tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
-            painter.setPen(tail_pen)
-            painter.drawLine(
-                int(comet['x']),
-                int(comet['y']),
-                int(comet['x'] - comet['vx'] * 6),
-                int(comet['y'] - comet['vy'] * 6)
-            )
-
         # Draw pulse rings
         painter.setPen(Qt.PenStyle.NoPen)
         for ring in self.pulse_rings:
@@ -811,10 +773,9 @@ class GalaxyBackground(QWidget):
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawEllipse(QPointF(ring.x, ring.y), ring.radius, ring.radius)
 
-        # Soft glow overlay
-        glow = QRadialGradient(self.width() * 0.7, self.height() * 0.25, self.width() * 0.8)
-        glow.setColorAt(0, QColor(248, 113, 113, 35))
-        glow.setColorAt(0.7, QColor(239, 68, 68, 12))
+        # Subtle accent glow
+        glow = QRadialGradient(self.width() * 0.5, self.height() * 0.2, self.width() * 0.7)
+        glow.setColorAt(0, QColor(239, 68, 68, 18))
         glow.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), glow)
 
@@ -824,38 +785,32 @@ class GalaxyBackground(QWidget):
 class StatCard(QFrame):
     def __init__(self, title, value="0", unit=""):
         super().__init__()
-        self.setFixedSize(170, 86)
+        self.setFixedSize(200, 74)
         self.setStyleSheet("""
             QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(24, 9, 9, 0.78), stop:1 rgba(10, 5, 5, 0.92));
-                border: 1px solid rgba(248, 113, 113, 0.22);
-                border-radius: 16px;
+                background: rgba(16, 16, 16, 0.6);
+                border: 1px solid rgba(239, 68, 68, 0.22);
+                border-radius: 14px;
             }
         """)
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(26)
-        shadow.setOffset(0, 8)
-        shadow.setColor(QColor(0, 0, 0, 170))
-        self.setGraphicsEffect(shadow)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(2)
         
         self.value_label = QLabel(value)
-        self.value_label.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        self.value_label.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
         self.value_label.setStyleSheet("color: #ef4444; border: none;")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         unit_label = QLabel(unit)
         unit_label.setFont(QFont("Segoe UI", 10))
-        unit_label.setStyleSheet("color: #fca5a5; border: none;")
+        unit_label.setStyleSheet("color: #f5f5f5; border: none;")
         unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         title_label = QLabel(title)
         title_label.setFont(QFont("Segoe UI", 9))
-        title_label.setStyleSheet("color: #fecaca; border: none;")
+        title_label.setStyleSheet("color: #d1d5db; border: none;")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         layout.addWidget(self.value_label)
@@ -904,16 +859,10 @@ class AnimatedButton(QPushButton):
         
         # Glow animation
         self.glow_anim = QPropertyAnimation(self, b"glow_intensity")
-        self.glow_anim.setDuration(600)
+        self.glow_anim.setDuration(500)
         self.glow_anim.setStartValue(0)
-        self.glow_anim.setEndValue(30)
+        self.glow_anim.setEndValue(18)
         self.glow_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(32)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(239, 68, 68, 120))
-        self.setGraphicsEffect(shadow)
         
         self.update_style()
     
@@ -946,28 +895,26 @@ class AnimatedButton(QPushButton):
         self.setStyleSheet(
             f"""
             QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #ef4444, stop:1 #dc2626);
+                background: #ef4444;
                 color: white;
-                font-size: 19px;
+                font-size: 18px;
                 font-weight: bold;
                 font-family: 'Segoe UI';
-                padding: 18px 54px;
-                border-radius: 18px;
-                border: none;
+                padding: 16px 52px;
+                border-radius: 14px;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                box-shadow: 0 0 {glow}px rgba(239, 68, 68, 0.55);
             }}
             QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #f87171, stop:1 #ef4444);
+                background: #f87171;
             }}
             QPushButton:pressed {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #dc2626, stop:1 #b91c1c);
+                background: #dc2626;
             }}
             QPushButton:disabled {{
                 background: #7f1d1d;
                 color: #fca5a5;
-                border: 2px solid #991b1b;
+                border: 1px solid #991b1b;
             }}
             """
         )
@@ -988,23 +935,22 @@ class AnimatedButton(QPushButton):
 class GlowProgressBar(QProgressBar):
     def __init__(self):
         super().__init__()
-        self.setFixedHeight(26)
+        self.setFixedHeight(22)
         self.setTextVisible(True)
         self.setFormat("%p%")
         self.setStyleSheet("""
             QProgressBar {
-                background: rgba(12, 6, 6, 0.8);
-                border: 1px solid rgba(248, 113, 113, 0.25);
-                border-radius: 13px;
+                background: rgba(15, 15, 15, 0.9);
+                border: 1px solid rgba(239, 68, 68, 0.2);
+                border-radius: 11px;
                 color: white;
                 font-weight: bold;
                 font-family: 'Segoe UI';
                 text-align: center;
             }
             QProgressBar::chunk {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #dc2626, stop:0.5 #ef4444, stop:1 #f87171);
-                border-radius: 10px;
+                background: #ef4444;
+                border-radius: 9px;
             }
         """)
 
@@ -1019,54 +965,24 @@ class OptimizerUI(GalaxyBackground):
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
-        layout.setContentsMargins(26, 26, 26, 26)
-
-        panel = QFrame()
-        panel.setStyleSheet("""
-            QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(15, 7, 7, 0.86), stop:1 rgba(6, 3, 3, 0.94));
-                border: 1px solid rgba(248, 113, 113, 0.18);
-                border-radius: 24px;
-            }
-        """)
-        panel_shadow = QGraphicsDropShadowEffect(panel)
-        panel_shadow.setBlurRadius(40)
-        panel_shadow.setOffset(0, 14)
-        panel_shadow.setColor(QColor(0, 0, 0, 170))
-        panel.setGraphicsEffect(panel_shadow)
-
-        panel_layout = QVBoxLayout(panel)
-        panel_layout.setContentsMargins(28, 26, 28, 26)
+        layout.setContentsMargins(40, 30, 40, 30)
 
         content_layout = QVBoxLayout()
-        content_layout.setSpacing(18)
-        content_layout.setContentsMargins(10, 0, 10, 0)
+        content_layout.setSpacing(14)
+        content_layout.setContentsMargins(0, 0, 0, 0)
 
         # Header
         title = QLabel(APP_NAME)
         title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
-        title.setStyleSheet("color: white; letter-spacing: 2px;")
+        title.setStyleSheet("color: white; letter-spacing: 1px;")
 
         subtitle = PulseLabel("Safe & Adaptive System Optimization")
         subtitle.setFont(QFont("Segoe UI", 12))
-        subtitle.setStyleSheet("color: #e5e7eb;")
-
-        badge = QLabel("ONE CLICK • SAFE MODE • AI TUNED")
-        badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        badge.setStyleSheet("""
-            color: #fecaca;
-            padding: 6px 16px;
-            background: rgba(127, 29, 29, 0.45);
-            border: 1px solid rgba(248, 113, 113, 0.3);
-            border-radius: 14px;
-            letter-spacing: 1px;
-        """)
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("color: #d1d5db;")
 
         header_line = QFrame()
         header_line.setFixedHeight(2)
-        header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
+        header_line.setStyleSheet("background: rgba(239,68,68,0.6); border-radius: 1px;")
 
         # Stats cards
         stats_layout = QHBoxLayout()
@@ -1074,8 +990,8 @@ class OptimizerUI(GalaxyBackground):
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
-        self.cleaned_card.setFixedSize(180, 80)
-        self.optimized_card.setFixedSize(180, 80)
+        self.cleaned_card.setFixedSize(200, 74)
+        self.optimized_card.setFixedSize(200, 74)
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
@@ -1109,7 +1025,6 @@ class OptimizerUI(GalaxyBackground):
         # Layout assembly
         content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(badge, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
@@ -1119,10 +1034,8 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        panel_layout.addLayout(content_layout)
-
         layout.addStretch(1)
-        layout.addWidget(panel)
+        layout.addLayout(content_layout)
         layout.addStretch(1)
 
     def start_optimization(self):
