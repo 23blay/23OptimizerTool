@@ -6,6 +6,7 @@ import random
 import re
 import urllib.request
 import math
+import json
 from dataclasses import dataclass
 from threading import Thread
 
@@ -47,7 +48,10 @@ TEST_TARGETS = {
 
 TEST_DOWNLOADS = {
     "Cloudflare 25MB": "https://speed.cloudflare.com/__down?bytes=25000000",
+    "Cloudflare 10MB": "https://speed.cloudflare.com/__down?bytes=10000000",
     "Hetzner 10MB": "https://speed.hetzner.de/10MB.bin",
+    "ThinkBroadband 20MB": "https://download.thinkbroadband.com/20MB.zip",
+    "Tele2 10MB": "https://speedtest.tele2.net/10MB.zip",
 }
 
 PRIMARY_RED = QColor(239, 68, 68)
@@ -79,17 +83,21 @@ class DiagnosticsWorker(QObject):
     def __init__(self, apply_reset: bool):
         super().__init__()
         self.apply_reset = apply_reset
+        self.nic_info = self.get_nic_info()
 
     def run(self):
         try:
             self.status.emit("Smart target selection...")
             best_target = self.select_best_target()
-            download_url = self.select_download_url()
+            download_endpoint = self.select_download_url()
+            if download_endpoint is None:
+                self.substatus.emit("No download endpoint reachable, continuing without speed test")
             self.progress.emit(10)
 
             self.status.emit("Running baseline test...")
-            self.substatus.emit(f"Target: {best_target['label']}")
-            baseline = self.run_single_test(best_target["ip"], download_url)
+            nic_text = self.format_nic_info()
+            self.substatus.emit(f"Target: {best_target['label']} • {nic_text}")
+            baseline = self.run_single_test(best_target["ip"], download_endpoint)
             self.progress.emit(45)
 
             reset_applied = False
@@ -100,12 +108,15 @@ class DiagnosticsWorker(QObject):
                     self.status.emit("Applying safe reset...")
                     self.substatus.emit("Flushing DNS / Resetting network stack")
                     self.apply_safe_reset()
+                    self.status.emit("Applying safe NIC optimizations...")
+                    self.substatus.emit("Optimizing TCP settings (safe)")
+                    self.apply_safe_optimizations()
                     reset_applied = True
                 self.progress.emit(65)
 
             self.status.emit("Running post-reset test...")
-            self.substatus.emit(f"Target: {best_target['label']}")
-            after = self.run_single_test(best_target["ip"], download_url)
+            self.substatus.emit(f"Target: {best_target['label']} • {nic_text}")
+            after = self.run_single_test(best_target["ip"], download_endpoint)
             self.progress.emit(100)
 
             self.result.emit(
@@ -114,6 +125,10 @@ class DiagnosticsWorker(QObject):
                     "after": after,
                     "target_label": best_target["label"],
                     "reset_applied": reset_applied,
+                    "nic_info": self.nic_info,
+                    "download_label": download_endpoint["label"]
+                    if download_endpoint
+                    else "Unavailable",
                 }
             )
         except Exception as exc:
@@ -121,7 +136,11 @@ class DiagnosticsWorker(QObject):
 
     def select_best_target(self):
         best = None
-        for label, ip in TEST_TARGETS.items():
+        targets = list(TEST_TARGETS.items())
+        gateway = self.get_default_gateway()
+        if gateway:
+            targets.insert(0, ("Default Gateway", gateway))
+        for label, ip in targets:
             try:
                 self.substatus.emit(f"Probing {label}")
                 latency = self.measure_latency(ip, count=1, timeout=1000)
@@ -135,22 +154,30 @@ class DiagnosticsWorker(QObject):
 
     def select_download_url(self):
         for label, url in TEST_DOWNLOADS.items():
-            try:
-                self.substatus.emit(f"Checking {label}")
-                with urllib.request.urlopen(url, timeout=6) as response:
-                    if response.status == 200:
-                        return url
-            except Exception:
-                continue
-        raise RuntimeError("No download endpoints reachable.")
+            if self.probe_download_url(label, url):
+                return {"label": label, "url": url}
+        return None
 
-    def run_single_test(self, target: str, download_url: str):
+    def probe_download_url(self, label: str, url: str):
+        try:
+            self.substatus.emit(f"Checking {label}")
+            request = urllib.request.Request(url, headers={"Range": "bytes=0-1023"})
+            with urllib.request.urlopen(request, timeout=6) as response:
+                return response.status in (200, 206)
+        except Exception:
+            return False
+
+    def run_single_test(self, target: str, download_endpoint):
         self.status.emit("Measuring latency...")
         latency = self.measure_latency(target)
         self.progress.emit(30)
 
         self.status.emit("Testing download speed...")
-        speed = self.measure_download_speed(download_url)
+        if download_endpoint:
+            speed = self.measure_download_speed(download_endpoint["url"])
+        else:
+            self.substatus.emit("Download test skipped (no endpoint reachable)")
+            speed = 0.0
         self.progress.emit(60)
 
         stability = self.calculate_stability(latency, speed)
@@ -173,7 +200,7 @@ class DiagnosticsWorker(QObject):
         packet_loss = int(loss_match.group(1)) if loss_match else 0
         return LatencyResult(average_ms, jitter_ms, packet_loss)
 
-    def measure_download_speed(self, url: str, duration: float = 5.0):
+    def measure_download_speed(self, url: str, duration: float = 6.0):
         start = time.time()
         total_bytes = 0
         chunk_size = 256 * 1024
@@ -218,6 +245,24 @@ class DiagnosticsWorker(QObject):
             timeout=10,
         )
 
+    def apply_safe_optimizations(self):
+        safe_cmds = [
+            "netsh int tcp set global autotuninglevel=normal",
+            "netsh int tcp set heuristics disabled",
+            "netsh int tcp set global congestionprovider=ctcp",
+            "netsh int tcp set global rss=enabled",
+            "netsh int tcp set global ecncapability=disabled",
+            "netsh int tcp set global timestamps=disabled",
+        ]
+        for cmd in safe_cmds:
+            subprocess.run(
+                cmd,
+                shell=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+
     @staticmethod
     def calculate_stability(latency: "LatencyResult", speed_mbps: float):
         latency_score = max(0, 100 - latency.average_ms)
@@ -225,6 +270,56 @@ class DiagnosticsWorker(QObject):
         loss_score = max(0, 100 - latency.packet_loss * 5)
         speed_score = min(100, speed_mbps * 4)
         return int((latency_score + jitter_score + loss_score + speed_score) / 4)
+
+    def get_default_gateway(self):
+        try:
+            output = subprocess.run(
+                "ipconfig",
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=6,
+            ).stdout
+            match = re.search(r"Default Gateway[ .]*: ([0-9.]+)", output)
+            return match.group(1) if match else None
+        except Exception:
+            return None
+
+    def get_nic_info(self):
+        try:
+            cmd = (
+                "powershell -Command "
+                "\"Get-NetAdapter | Where-Object {$_.Status -eq 'Up'} | "
+                "Sort-Object -Property LinkSpeed -Descending | "
+                "Select-Object -First 1 -Property Name,InterfaceDescription,LinkSpeed,MacAddress | "
+                "ConvertTo-Json\""
+            )
+            output = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=8,
+            ).stdout.strip().splitlines()
+            raw = "\n".join(output)
+            if raw:
+                data = json.loads(raw)
+                return {
+                    "description": data.get("InterfaceDescription", "Unknown adapter"),
+                    "link_speed": data.get("LinkSpeed", "Unknown"),
+                    "name": data.get("Name", "Unknown"),
+                    "mac": data.get("MacAddress", "Unknown"),
+                }
+        except Exception:
+            return {"description": "Unknown adapter", "link_speed": "Unknown"}
+        return {"description": "Unknown adapter", "link_speed": "Unknown"}
+
+    def format_nic_info(self):
+        if not self.nic_info:
+            return "Adapter: Unknown"
+        description = self.nic_info.get("description", "Unknown adapter")
+        speed = self.nic_info.get("link_speed", "Unknown")
+        return f"Adapter: {description} • Link: {speed}"
 
 
 @dataclass
@@ -726,10 +821,10 @@ class NetworkOptimizerUI(GalaxyBackground):
 
         self.run_button = AnimatedButton("RUN SMART TEST")
         self.run_button.start_pulse()
-        self.run_button.clicked.connect(self.run_full_diagnostics)
+        self.run_button.clicked.connect(self.run_smart_test)
 
-        self.reset_button = AnimatedButton("RUN TEST + SAFE RESET")
-        self.reset_button.clicked.connect(self.run_full_diagnostics)
+        self.reset_button = AnimatedButton("RUN TEST + SAFE OPTIMIZE")
+        self.reset_button.clicked.connect(self.run_test_with_optimize)
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(18)
@@ -779,7 +874,13 @@ class NetworkOptimizerUI(GalaxyBackground):
         layout.addLayout(content_layout)
         layout.addStretch(1)
 
-    def run_full_diagnostics(self):
+    def run_smart_test(self):
+        self.run_full_diagnostics(apply_reset=False)
+
+    def run_test_with_optimize(self):
+        self.run_full_diagnostics(apply_reset=True)
+
+    def run_full_diagnostics(self, apply_reset: bool):
         self.run_button.stop_pulse()
         self.run_button.setEnabled(False)
         self.reset_button.setEnabled(False)
@@ -792,7 +893,7 @@ class NetworkOptimizerUI(GalaxyBackground):
         self.status_label.setText("Running smart diagnostics...")
         self.substatus_label.setText("Selecting best target and endpoint")
 
-        self.worker = DiagnosticsWorker(apply_reset=True)
+        self.worker = DiagnosticsWorker(apply_reset=apply_reset)
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
@@ -841,12 +942,23 @@ class NetworkOptimizerUI(GalaxyBackground):
         baseline = data["baseline"]
         after = data["after"]
         reset_note = "Applied" if data["reset_applied"] else "Skipped (admin required)"
+        nic_info = data.get("nic_info") or {}
+        nic_desc = nic_info.get("description", "Unknown adapter")
+        nic_speed = nic_info.get("link_speed", "Unknown")
+        nic_name = nic_info.get("name", "Unknown")
+        nic_mac = nic_info.get("mac", "Unknown")
+        download_label = data.get("download_label", "Unavailable")
 
         msg = QMessageBox(self)
         msg.setWindowTitle("Network Diagnostics Summary")
         msg.setText(
             f"Target: {data['target_label']}\n"
-            f"Reset: {reset_note}\n\n"
+            f"Adapter: {nic_desc}\n"
+            f"Interface: {nic_name}\n"
+            f"MAC: {nic_mac}\n"
+            f"Link Speed: {nic_speed}\n"
+            f"Download Source: {download_label}\n"
+            f"Optimize: {reset_note}\n\n"
             f"Before:\n"
             f"• Latency: {baseline.latency.average_ms} ms\n"
             f"• Jitter: {baseline.latency.jitter_ms} ms\n"
