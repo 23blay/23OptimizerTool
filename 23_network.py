@@ -21,7 +21,7 @@ from PyQt6.QtCore import (
     QSequentialAnimationGroup,
     QPointF,
 )
-from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearGradient
+from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
@@ -37,7 +37,7 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Network Optimizer"
-VERSION = "v1.1"
+VERSION = "v1.2"
 
 TEST_TARGETS = {
     "Cloudflare (1.1.1.1)": "1.1.1.1",
@@ -46,9 +46,13 @@ TEST_TARGETS = {
 }
 
 TEST_DOWNLOADS = {
-    "Cloudflare 10MB": "https://speed.cloudflare.com/__down?bytes=10000000",
+    "Cloudflare 25MB": "https://speed.cloudflare.com/__down?bytes=25000000",
     "Hetzner 10MB": "https://speed.hetzner.de/10MB.bin",
 }
+
+PRIMARY_RED = QColor(239, 68, 68)
+SECONDARY_RED = QColor(220, 38, 38)
+SOFT_RED = QColor(248, 113, 113)
 
 
 # ===============================
@@ -65,47 +69,95 @@ def is_admin():
 # ===============================
 # NETWORK WORKER
 # ===============================
-class NetworkWorker(QObject):
+class DiagnosticsWorker(QObject):
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
     substatus = pyqtSignal(str)
     result = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self, ping_target: str, download_url: str):
+    def __init__(self, apply_reset: bool):
         super().__init__()
-        self.ping_target = ping_target
-        self.download_url = download_url
+        self.apply_reset = apply_reset
 
     def run(self):
         try:
-            self.status.emit("Measuring latency...")
-            self.substatus.emit(f"Pinging {self.ping_target}")
-            latency = self.measure_latency(self.ping_target)
-            self.progress.emit(35)
+            self.status.emit("Smart target selection...")
+            best_target = self.select_best_target()
+            download_url = self.select_download_url()
+            self.progress.emit(10)
 
-            self.status.emit("Testing download speed...")
-            self.substatus.emit("Downloading sample file")
-            speed = self.measure_download_speed(self.download_url)
-            self.progress.emit(85)
+            self.status.emit("Running baseline test...")
+            self.substatus.emit(f"Target: {best_target['label']}")
+            baseline = self.run_single_test(best_target["ip"], download_url)
+            self.progress.emit(45)
 
-            stability = self.calculate_stability(latency, speed)
+            reset_applied = False
+            if self.apply_reset:
+                if not is_admin():
+                    self.substatus.emit("Reset skipped: admin required")
+                else:
+                    self.status.emit("Applying safe reset...")
+                    self.substatus.emit("Flushing DNS / Resetting network stack")
+                    self.apply_safe_reset()
+                    reset_applied = True
+                self.progress.emit(65)
+
+            self.status.emit("Running post-reset test...")
+            self.substatus.emit(f"Target: {best_target['label']}")
+            after = self.run_single_test(best_target["ip"], download_url)
             self.progress.emit(100)
 
             self.result.emit(
                 {
-                    "latency_ms": latency.average_ms,
-                    "jitter_ms": latency.jitter_ms,
-                    "packet_loss": latency.packet_loss,
-                    "download_mbps": speed,
-                    "stability": stability,
+                    "baseline": baseline,
+                    "after": after,
+                    "target_label": best_target["label"],
+                    "reset_applied": reset_applied,
                 }
             )
         except Exception as exc:
             self.error.emit(str(exc))
 
-    def measure_latency(self, target: str, count: int = 4):
-        cmd = ["ping", "-n", str(count), target]
+    def select_best_target(self):
+        best = None
+        for label, ip in TEST_TARGETS.items():
+            try:
+                self.substatus.emit(f"Probing {label}")
+                latency = self.measure_latency(ip, count=1, timeout=1000)
+                if best is None or latency.average_ms < best["latency"]:
+                    best = {"label": label, "ip": ip, "latency": latency.average_ms}
+            except Exception:
+                continue
+        if not best:
+            raise RuntimeError("No reachable targets. Check network connection.")
+        return best
+
+    def select_download_url(self):
+        for label, url in TEST_DOWNLOADS.items():
+            try:
+                self.substatus.emit(f"Checking {label}")
+                with urllib.request.urlopen(url, timeout=6) as response:
+                    if response.status == 200:
+                        return url
+            except Exception:
+                continue
+        raise RuntimeError("No download endpoints reachable.")
+
+    def run_single_test(self, target: str, download_url: str):
+        self.status.emit("Measuring latency...")
+        latency = self.measure_latency(target)
+        self.progress.emit(30)
+
+        self.status.emit("Testing download speed...")
+        speed = self.measure_download_speed(download_url)
+        self.progress.emit(60)
+
+        stability = self.calculate_stability(latency, speed)
+        return TestResult(latency, speed, stability)
+
+    def measure_latency(self, target: str, count: int = 4, timeout: int = 2000):
+        cmd = ["ping", "-n", str(count), "-w", str(timeout), target]
         proc = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         output = proc.stdout + proc.stderr
         times = [int(match.group(1)) for match in re.finditer(r"time[=<](\d+)ms", output)]
@@ -121,12 +173,13 @@ class NetworkWorker(QObject):
         packet_loss = int(loss_match.group(1)) if loss_match else 0
         return LatencyResult(average_ms, jitter_ms, packet_loss)
 
-    def measure_download_speed(self, url: str, timeout: int = 20):
+    def measure_download_speed(self, url: str, duration: float = 5.0):
         start = time.time()
         total_bytes = 0
         chunk_size = 256 * 1024
-        with urllib.request.urlopen(url, timeout=timeout) as response:
-            while True:
+        with urllib.request.urlopen(url, timeout=20) as response:
+            response.read(64 * 1024)
+            while time.time() - start < duration:
                 chunk = response.read(chunk_size)
                 if not chunk:
                     break
@@ -134,6 +187,36 @@ class NetworkWorker(QObject):
         elapsed = max(time.time() - start, 0.1)
         mbps = (total_bytes * 8) / (elapsed * 1_000_000)
         return round(mbps, 2)
+
+    def apply_safe_reset(self):
+        subprocess.run(
+            "ipconfig /flushdns",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=8,
+        )
+        subprocess.run(
+            "netsh winsock reset",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+        subprocess.run(
+            "netsh int ip reset",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+        subprocess.run(
+            "netsh int tcp set global autotuninglevel=normal",
+            shell=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
 
     @staticmethod
     def calculate_stability(latency: "LatencyResult", speed_mbps: float):
@@ -144,58 +227,18 @@ class NetworkWorker(QObject):
         return int((latency_score + jitter_score + loss_score + speed_score) / 4)
 
 
-# ===============================
-# SAFE RESET WORKER
-# ===============================
-class ResetWorker(QObject):
-    status = pyqtSignal(str)
-    done = pyqtSignal()
-    error = pyqtSignal(str)
-
-    def run(self):
-        try:
-            self.status.emit("Flushing DNS cache...")
-            subprocess.run(
-                "ipconfig /flushdns",
-                shell=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=8,
-            )
-            self.status.emit("Resetting Winsock...")
-            subprocess.run(
-                "netsh winsock reset",
-                shell=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-            )
-            self.status.emit("Resetting IP stack...")
-            subprocess.run(
-                "netsh int ip reset",
-                shell=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-            )
-            self.status.emit("Restoring TCP autotuning...")
-            subprocess.run(
-                "netsh int tcp set global autotuninglevel=normal",
-                shell=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                timeout=10,
-            )
-            self.done.emit()
-        except Exception as exc:
-            self.error.emit(str(exc))
-
-
 @dataclass
 class LatencyResult:
     average_ms: int
     jitter_ms: int
     packet_loss: int
+
+
+@dataclass
+class TestResult:
+    latency: LatencyResult
+    download_mbps: float
+    stability: int
 
 
 # ===============================
@@ -213,7 +256,7 @@ class Particle:
 
 
 class PulseRing:
-    def __init__(self, x, y, max_radius=220, speed=6, color=QColor(14, 165, 233)):
+    def __init__(self, x, y, max_radius=220, speed=6, color=QColor(239, 68, 68)):
         self.x = x
         self.y = y
         self.radius = 0
@@ -255,7 +298,7 @@ class GalaxyBackground(QWidget):
         self.timer.start(16)
 
     def add_particle_burst(self, x, y, count=20):
-        colors = [QColor(14, 165, 233), QColor(2, 132, 199), QColor(56, 189, 248)]
+        colors = [PRIMARY_RED, SECONDARY_RED, SOFT_RED]
         for _ in range(count):
             speed = random.uniform(2, 6)
             self.particles.append(
@@ -269,7 +312,7 @@ class GalaxyBackground(QWidget):
                 )
             )
 
-    def add_pulse_ring(self, x, y, color=QColor(56, 189, 248)):
+    def add_pulse_ring(self, x, y, color=SOFT_RED):
         self.pulse_rings.append(PulseRing(x, y, color=color))
 
     def spawn_comet(self):
@@ -332,9 +375,9 @@ class GalaxyBackground(QWidget):
         bg = QRadialGradient(
             self.width() / 2, self.height() / 2, max(self.width(), self.height())
         )
-        bg.setColorAt(0, QColor(8, 12, 24))
-        bg.setColorAt(0.5, QColor(4, 8, 16))
-        bg.setColorAt(1, QColor(2, 6, 23))
+        bg.setColorAt(0, QColor(10, 10, 10))
+        bg.setColorAt(0.5, QColor(5, 5, 5))
+        bg.setColorAt(1, QColor(0, 0, 0))
         painter.fillRect(self.rect(), bg)
 
         nebula = QRadialGradient(
@@ -342,8 +385,8 @@ class GalaxyBackground(QWidget):
             self.height() / 2 + 50 * random.uniform(-1, 1),
             400,
         )
-        nebula.setColorAt(0, QColor(14, 165, 233, 40))
-        nebula.setColorAt(0.5, QColor(2, 132, 199, 20))
+        nebula.setColorAt(0, QColor(239, 68, 68, 35))
+        nebula.setColorAt(0.5, QColor(185, 28, 28, 20))
         nebula.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), nebula)
 
@@ -370,9 +413,9 @@ class GalaxyBackground(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         for comet in self.comets:
             alpha = int(180 * comet["life"])
-            painter.setBrush(QColor(125, 211, 252, alpha))
+            painter.setBrush(QColor(248, 113, 113, alpha))
             painter.drawEllipse(QRectF(comet["x"], comet["y"], 3, 3))
-            tail_pen = QPen(QColor(125, 211, 252, max(40, alpha // 2)), 2)
+            tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
             painter.setPen(tail_pen)
             painter.drawLine(
                 int(comet["x"]),
@@ -393,8 +436,8 @@ class GalaxyBackground(QWidget):
         glow = QRadialGradient(
             self.width() * 0.7, self.height() * 0.25, self.width() * 0.8
         )
-        glow.setColorAt(0, QColor(125, 211, 252, 40))
-        glow.setColorAt(0.7, QColor(56, 189, 248, 16))
+        glow.setColorAt(0, QColor(248, 113, 113, 35))
+        glow.setColorAt(0.7, QColor(239, 68, 68, 12))
         glow.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), glow)
 
@@ -414,17 +457,17 @@ class StatCard(QFrame):
 
         self.value_label = QLabel(value)
         self.value_label.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
-        self.value_label.setStyleSheet("color: #38bdf8; border: none;")
+        self.value_label.setStyleSheet("color: #ef4444; border: none;")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         unit_label = QLabel(unit)
         unit_label.setFont(QFont("Segoe UI", 10))
-        unit_label.setStyleSheet("color: #bae6fd; border: none;")
+        unit_label.setStyleSheet("color: #fca5a5; border: none;")
         unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         title_label = QLabel(title)
         title_label.setFont(QFont("Segoe UI", 9))
-        title_label.setStyleSheet("color: #e0f2fe; border: none;")
+        title_label.setStyleSheet("color: #fecaca; border: none;")
         title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         layout.addWidget(self.value_label)
@@ -515,7 +558,7 @@ class AnimatedButton(QPushButton):
             """
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #38bdf8, stop:1 #0284c7);
+                    stop:0 #ef4444, stop:1 #dc2626);
                 color: white;
                 font-size: 18px;
                 font-weight: bold;
@@ -526,16 +569,16 @@ class AnimatedButton(QPushButton):
             }
             QPushButton:hover {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #7dd3fc, stop:1 #38bdf8);
+                    stop:0 #f87171, stop:1 #ef4444);
             }
             QPushButton:pressed {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #0284c7, stop:1 #0369a1);
+                    stop:0 #dc2626, stop:1 #b91c1c);
             }
             QPushButton:disabled {
-                background: #0c4a6e;
-                color: #bae6fd;
-                border: 2px solid #075985;
+                background: #7f1d1d;
+                color: #fca5a5;
+                border: 2px solid #991b1b;
             }
             """
         )
@@ -563,7 +606,7 @@ class GlowProgressBar(QProgressBar):
         self.setStyleSheet(
             """
             QProgressBar {
-                background: rgba(10, 5, 20, 0.8);
+                background: rgba(10, 5, 5, 0.8);
                 border-radius: 12px;
                 color: white;
                 font-weight: bold;
@@ -572,7 +615,7 @@ class GlowProgressBar(QProgressBar):
             }
             QProgressBar::chunk {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 #0ea5e9, stop:0.5 #38bdf8, stop:1 #7dd3fc);
+                    stop:0 #dc2626, stop:0.5 #ef4444, stop:1 #f87171);
                 border-radius: 10px;
             }
             """
@@ -587,6 +630,7 @@ class NetworkOptimizerUI(GalaxyBackground):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} – {VERSION}")
         self.setFixedSize(1100, 760)
+        self.last_results = None
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
@@ -600,9 +644,9 @@ class NetworkOptimizerUI(GalaxyBackground):
         title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
         title.setStyleSheet("color: white; letter-spacing: 2px;")
 
-        subtitle = PulseLabel("Universal network diagnostics and safe reset")
+        subtitle = PulseLabel("Smart network diagnostics with before/after results")
         subtitle.setFont(QFont("Segoe UI", 12))
-        subtitle.setStyleSheet("color: #e2e8f0;")
+        subtitle.setStyleSheet("color: #e5e7eb;")
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(10)
@@ -611,8 +655,8 @@ class NetworkOptimizerUI(GalaxyBackground):
             badge = QLabel(badge_text)
             badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
             badge.setStyleSheet(
-                "color: #bae6fd; background: rgba(14, 116, 144, 0.55);"
-                "padding: 4px 10px; border-radius: 10px; border: 1px solid #0e7490;"
+                "color: #fecaca; background: rgba(127, 29, 29, 0.55);"
+                "padding: 4px 10px; border-radius: 10px; border: 1px solid #7f1d1d;"
             )
             badges_layout.addWidget(badge)
         badges_layout.addStretch()
@@ -621,7 +665,7 @@ class NetworkOptimizerUI(GalaxyBackground):
         header_line.setFixedHeight(2)
         header_line.setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
-            "stop:0 rgba(14,165,233,0), stop:0.5 rgba(14,165,233,0.6), stop:1 rgba(14,165,233,0));"
+            "stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0));"
             "border-radius: 1px;"
         )
 
@@ -651,25 +695,27 @@ class NetworkOptimizerUI(GalaxyBackground):
         selector_layout.addStretch()
 
         self.ping_selector = QComboBox()
-        self.ping_selector.addItems(TEST_TARGETS.keys())
+        self.ping_selector.addItem("Auto-select")
+        self.ping_selector.setEnabled(False)
         self.ping_selector.setFixedWidth(220)
         self.ping_selector.setStyleSheet(
-            "QComboBox { background: rgba(15,23,42,0.85); color: white; "
+            "QComboBox { background: rgba(15,23,42,0.65); color: #e5e7eb; "
             "padding: 6px; border-radius: 8px; }"
         )
 
         self.download_selector = QComboBox()
-        self.download_selector.addItems(TEST_DOWNLOADS.keys())
+        self.download_selector.addItem("Auto-select")
+        self.download_selector.setEnabled(False)
         self.download_selector.setFixedWidth(220)
         self.download_selector.setStyleSheet(
-            "QComboBox { background: rgba(15,23,42,0.85); color: white; "
+            "QComboBox { background: rgba(15,23,42,0.65); color: #e5e7eb; "
             "padding: 6px; border-radius: 8px; }"
         )
 
         ping_label = QLabel("Ping Target:")
-        ping_label.setStyleSheet("color: #e2e8f0;")
+        ping_label.setStyleSheet("color: #e5e7eb;")
         download_label = QLabel("Download Test:")
-        download_label.setStyleSheet("color: #e2e8f0;")
+        download_label.setStyleSheet("color: #e5e7eb;")
 
         selector_layout.addWidget(ping_label)
         selector_layout.addWidget(self.ping_selector)
@@ -678,12 +724,12 @@ class NetworkOptimizerUI(GalaxyBackground):
         selector_layout.addWidget(self.download_selector)
         selector_layout.addStretch()
 
-        self.run_button = AnimatedButton("RUN NETWORK TEST")
+        self.run_button = AnimatedButton("RUN SMART TEST")
         self.run_button.start_pulse()
-        self.run_button.clicked.connect(self.run_test)
+        self.run_button.clicked.connect(self.run_full_diagnostics)
 
-        self.reset_button = AnimatedButton("APPLY SAFE RESET")
-        self.reset_button.clicked.connect(self.apply_reset)
+        self.reset_button = AnimatedButton("RUN TEST + SAFE RESET")
+        self.reset_button.clicked.connect(self.run_full_diagnostics)
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(18)
@@ -699,19 +745,19 @@ class NetworkOptimizerUI(GalaxyBackground):
 
         self.status_label = QLabel("Ready for diagnostics")
         self.status_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        self.status_label.setStyleSheet("color: #7dd3fc; letter-spacing: 0.5px;")
+        self.status_label.setStyleSheet("color: #f87171; letter-spacing: 0.5px;")
 
-        self.substatus_label = QLabel("Choose a target and start a test")
+        self.substatus_label = QLabel("One click runs before/after tests automatically")
         self.substatus_label.setFont(QFont("Segoe UI", 11))
-        self.substatus_label.setStyleSheet("color: #bae6fd;")
+        self.substatus_label.setStyleSheet("color: #fca5a5;")
 
         self.tip_label = PulseLabel(
-            "Tip: Run tests on your usual Wi-Fi or Ethernet for the most accurate results.",
+            "Tip: Stay connected to your main Wi-Fi or Ethernet for best results.",
             min_opacity=0.55,
             max_opacity=0.95,
         )
         self.tip_label.setFont(QFont("Segoe UI", 10))
-        self.tip_label.setStyleSheet("color: #e0f2fe;")
+        self.tip_label.setStyleSheet("color: #fecaca;")
 
         content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -733,7 +779,7 @@ class NetworkOptimizerUI(GalaxyBackground):
         layout.addLayout(content_layout)
         layout.addStretch(1)
 
-    def run_test(self):
+    def run_full_diagnostics(self):
         self.run_button.stop_pulse()
         self.run_button.setEnabled(False)
         self.reset_button.setEnabled(False)
@@ -743,39 +789,16 @@ class NetworkOptimizerUI(GalaxyBackground):
 
         self.progress.setValue(0)
         self.progress.setFormat("Testing... %p%")
-        self.status_label.setText("Running diagnostics...")
-        self.substatus_label.setText("Starting latency checks")
+        self.status_label.setText("Running smart diagnostics...")
+        self.substatus_label.setText("Selecting best target and endpoint")
 
-        ping_target = TEST_TARGETS[self.ping_selector.currentText()]
-        download_url = TEST_DOWNLOADS[self.download_selector.currentText()]
-        self.worker = NetworkWorker(ping_target, download_url)
+        self.worker = DiagnosticsWorker(apply_reset=True)
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
         self.worker.result.connect(self.show_results)
         self.worker.error.connect(self.handle_error)
         Thread(target=self.worker.run, daemon=True).start()
-
-    def apply_reset(self):
-        if not is_admin():
-            QMessageBox.warning(
-                self,
-                "Admin Required",
-                "Safe reset needs administrator privileges. Please run as admin.",
-            )
-            return
-        self.run_button.stop_pulse()
-        self.run_button.setEnabled(False)
-        self.reset_button.setEnabled(False)
-        self.progress.setValue(0)
-        self.progress.setFormat("Resetting...")
-        self.status_label.setText("Applying safe reset...")
-        self.substatus_label.setText("This may take a few seconds")
-        self.reset_worker = ResetWorker()
-        self.reset_worker.status.connect(self.update_substatus)
-        self.reset_worker.done.connect(self.reset_done)
-        self.reset_worker.error.connect(self.handle_error)
-        Thread(target=self.reset_worker.run, daemon=True).start()
 
     def update_status(self, text):
         self.status_label.setText(text)
@@ -794,13 +817,16 @@ class NetworkOptimizerUI(GalaxyBackground):
             self.add_pulse_ring(self.width() // 2, self.height() // 2 + 50)
 
     def show_results(self, data):
-        self.latency_card.set_value(data["latency_ms"])
-        self.jitter_card.set_value(data["jitter_ms"])
-        self.download_card.set_value(data["download_mbps"])
-        self.stability_card.set_value(data["stability"])
+        self.last_results = data
+        after = data["after"]
 
-        self.status_label.setText("Network diagnostics complete")
-        self.substatus_label.setText("Ready for another test")
+        self.latency_card.set_value(after.latency.average_ms)
+        self.jitter_card.set_value(after.latency.jitter_ms)
+        self.download_card.set_value(after.download_mbps)
+        self.stability_card.set_value(after.stability)
+
+        self.status_label.setText("Diagnostics complete")
+        self.substatus_label.setText("Baseline vs after results ready")
         self.progress.setValue(100)
         self.progress.setFormat("Complete")
 
@@ -809,20 +835,47 @@ class NetworkOptimizerUI(GalaxyBackground):
         self.run_button.set_busy(False)
         self.run_button.start_pulse()
 
-    def reset_done(self):
-        self.status_label.setText("Safe reset applied")
-        self.substatus_label.setText("Restart may be required for all changes")
-        self.progress.setValue(100)
-        self.progress.setFormat("Reset complete")
-        QMessageBox.information(
-            self,
-            "Reset Complete",
-            "Network reset applied. Restart Windows for full effect.",
+        self.show_summary_dialog(data)
+
+    def show_summary_dialog(self, data):
+        baseline = data["baseline"]
+        after = data["after"]
+        reset_note = "Applied" if data["reset_applied"] else "Skipped (admin required)"
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Network Diagnostics Summary")
+        msg.setText(
+            f"Target: {data['target_label']}\n"
+            f"Reset: {reset_note}\n\n"
+            f"Before:\n"
+            f"• Latency: {baseline.latency.average_ms} ms\n"
+            f"• Jitter: {baseline.latency.jitter_ms} ms\n"
+            f"• Packet Loss: {baseline.latency.packet_loss}%\n"
+            f"• Download: {baseline.download_mbps} Mbps\n"
+            f"• Stability: {baseline.stability}%\n\n"
+            f"After:\n"
+            f"• Latency: {after.latency.average_ms} ms\n"
+            f"• Jitter: {after.latency.jitter_ms} ms\n"
+            f"• Packet Loss: {after.latency.packet_loss}%\n"
+            f"• Download: {after.download_mbps} Mbps\n"
+            f"• Stability: {after.stability}%"
         )
-        self.run_button.setEnabled(True)
-        self.reset_button.setEnabled(True)
-        self.run_button.set_busy(False)
-        self.run_button.start_pulse()
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setStyleSheet(
+            """
+            QMessageBox { background: #1a1a1a; }
+            QMessageBox QLabel { color: white; font-family: 'Segoe UI'; }
+            QPushButton {
+                background: #ef4444;
+                color: white;
+                padding: 8px 20px;
+                border-radius: 6px;
+                font-weight: bold;
+            }
+            QPushButton:hover { background: #f87171; }
+            """
+        )
+        msg.exec()
 
     def handle_error(self, error_msg):
         self.status_label.setText("❌ Operation failed")
