@@ -346,7 +346,7 @@ class DiagnosticsWorker(QObject):
                 base_url = url.rsplit("/", 1)[0]
                 servers.append(
                     {
-                        "label": f\"{item.get('name', 'Server')}, {item.get('country', '')}\",
+                        "label": f"{item.get('name', 'Server')}, {item.get('country', '')}",
                         "host": parsed.hostname,
                         "base_url": base_url,
                     }
