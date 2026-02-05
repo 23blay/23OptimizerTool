@@ -5,6 +5,7 @@ import time
 import random
 import re
 import urllib.request
+from urllib.parse import urlparse
 import math
 import json
 from dataclasses import dataclass
@@ -54,6 +55,8 @@ TEST_DOWNLOADS = {
     "Tele2 10MB": "https://speedtest.tele2.net/10MB.zip",
 }
 
+SPEEDTEST_SERVERS_URL = "https://www.speedtest.net/api/js/servers?engine=js&limit=10"
+
 PRIMARY_RED = QColor(239, 68, 68)
 SECONDARY_RED = QColor(220, 38, 38)
 SOFT_RED = QColor(248, 113, 113)
@@ -89,15 +92,16 @@ class DiagnosticsWorker(QObject):
         try:
             self.status.emit("Smart target selection...")
             best_target = self.select_best_target()
+            speedtest_server = self.select_speedtest_server()
             download_endpoint = self.select_download_url()
-            if download_endpoint is None:
-                self.substatus.emit("No download endpoint reachable, continuing without speed test")
+            if speedtest_server is None and download_endpoint is None:
+                self.substatus.emit("No speedtest endpoints reachable, continuing without speed test")
             self.progress.emit(10)
 
             self.status.emit("Running baseline test...")
             nic_text = self.format_nic_info()
             self.substatus.emit(f"Target: {best_target['label']} • {nic_text}")
-            baseline = self.run_single_test(best_target["ip"], download_endpoint)
+            baseline = self.run_single_test(best_target["ip"], speedtest_server, download_endpoint)
             self.progress.emit(45)
 
             reset_applied = False
@@ -116,7 +120,7 @@ class DiagnosticsWorker(QObject):
 
             self.status.emit("Running post-reset test...")
             self.substatus.emit(f"Target: {best_target['label']} • {nic_text}")
-            after = self.run_single_test(best_target["ip"], download_endpoint)
+            after = self.run_single_test(best_target["ip"], speedtest_server, download_endpoint)
             self.progress.emit(100)
 
             self.result.emit(
@@ -126,8 +130,9 @@ class DiagnosticsWorker(QObject):
                     "target_label": best_target["label"],
                     "reset_applied": reset_applied,
                     "nic_info": self.nic_info,
-                    "download_label": download_endpoint["label"]
-                    if download_endpoint
+                    "download_label": download_endpoint["label"] if download_endpoint else "Unavailable",
+                    "speedtest_label": speedtest_server["label"]
+                    if speedtest_server
                     else "Unavailable",
                 }
             )
@@ -167,13 +172,15 @@ class DiagnosticsWorker(QObject):
         except Exception:
             return False
 
-    def run_single_test(self, target: str, download_endpoint):
+    def run_single_test(self, target: str, speedtest_server, download_endpoint):
         self.status.emit("Measuring latency...")
         latency = self.measure_latency(target)
         self.progress.emit(30)
 
         self.status.emit("Testing download speed...")
-        if download_endpoint:
+        if speedtest_server:
+            speed = self.measure_speedtest_download(speedtest_server)
+        elif download_endpoint:
             speed = self.measure_download_speed(download_endpoint["url"])
         else:
             self.substatus.emit("Download test skipped (no endpoint reachable)")
@@ -205,6 +212,26 @@ class DiagnosticsWorker(QObject):
         total_bytes = 0
         chunk_size = 256 * 1024
         with urllib.request.urlopen(url, timeout=20) as response:
+            response.read(64 * 1024)
+            while time.time() - start < duration:
+                chunk = response.read(chunk_size)
+                if not chunk:
+                    break
+                total_bytes += len(chunk)
+        elapsed = max(time.time() - start, 0.1)
+        mbps = (total_bytes * 8) / (elapsed * 1_000_000)
+        return round(mbps, 2)
+
+    def measure_speedtest_download(self, server: dict, duration: float = 8.0):
+        base_url = server["base_url"]
+        sizes = [35000000, 25000000, 10000000]
+        start = time.time()
+        total_bytes = 0
+        chunk_size = 256 * 1024
+        with urllib.request.urlopen(
+            urllib.request.Request(f"{base_url}/download?size={sizes[0]}"),
+            timeout=20,
+        ) as response:
             response.read(64 * 1024)
             while time.time() - start < duration:
                 chunk = response.read(chunk_size)
@@ -251,8 +278,10 @@ class DiagnosticsWorker(QObject):
             "netsh int tcp set heuristics disabled",
             "netsh int tcp set global congestionprovider=ctcp",
             "netsh int tcp set global rss=enabled",
+            "netsh int tcp set global rsc=disabled",
             "netsh int tcp set global ecncapability=disabled",
             "netsh int tcp set global timestamps=disabled",
+            "netsh int tcp set global initialRto=2000",
         ]
         for cmd in safe_cmds:
             subprocess.run(
@@ -284,6 +313,47 @@ class DiagnosticsWorker(QObject):
             return match.group(1) if match else None
         except Exception:
             return None
+
+    def select_speedtest_server(self):
+        servers = self.get_speedtest_servers()
+        if not servers:
+            return None
+        best = None
+        for server in servers:
+            host = server.get("host")
+            if not host:
+                continue
+            try:
+                self.substatus.emit(f"Probing {server['label']}")
+                latency = self.measure_latency(host, count=1, timeout=1000)
+                if best is None or latency.average_ms < best["latency"]:
+                    best = {"latency": latency.average_ms, **server}
+            except Exception:
+                continue
+        return best
+
+    def get_speedtest_servers(self):
+        try:
+            with urllib.request.urlopen(SPEEDTEST_SERVERS_URL, timeout=8) as response:
+                raw = response.read().decode("utf-8")
+            data = json.loads(raw)
+            servers = []
+            for item in data:
+                url = item.get("url")
+                if not url:
+                    continue
+                parsed = urlparse(url)
+                base_url = url.rsplit("/", 1)[0]
+                servers.append(
+                    {
+                        "label": f\"{item.get('name', 'Server')}, {item.get('country', '')}\",
+                        "host": parsed.hostname,
+                        "base_url": base_url,
+                    }
+                )
+            return servers
+        except Exception:
+            return []
 
     def get_nic_info(self):
         try:
@@ -819,18 +889,14 @@ class NetworkOptimizerUI(GalaxyBackground):
         selector_layout.addWidget(self.download_selector)
         selector_layout.addStretch()
 
-        self.run_button = AnimatedButton("RUN SMART TEST")
+        self.run_button = AnimatedButton("OPTIMIZE NETWORK")
         self.run_button.start_pulse()
-        self.run_button.clicked.connect(self.run_smart_test)
-
-        self.reset_button = AnimatedButton("RUN TEST + SAFE OPTIMIZE")
-        self.reset_button.clicked.connect(self.run_test_with_optimize)
+        self.run_button.clicked.connect(self.run_full_diagnostics)
 
         button_layout = QHBoxLayout()
         button_layout.setSpacing(18)
         button_layout.addStretch()
         button_layout.addWidget(self.run_button)
-        button_layout.addWidget(self.reset_button)
         button_layout.addStretch()
 
         self.progress = GlowProgressBar()
@@ -842,7 +908,7 @@ class NetworkOptimizerUI(GalaxyBackground):
         self.status_label.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
         self.status_label.setStyleSheet("color: #f87171; letter-spacing: 0.5px;")
 
-        self.substatus_label = QLabel("One click runs before/after tests automatically")
+        self.substatus_label = QLabel("One click runs tests and applies safe optimizations")
         self.substatus_label.setFont(QFont("Segoe UI", 11))
         self.substatus_label.setStyleSheet("color: #fca5a5;")
 
@@ -874,16 +940,9 @@ class NetworkOptimizerUI(GalaxyBackground):
         layout.addLayout(content_layout)
         layout.addStretch(1)
 
-    def run_smart_test(self):
-        self.run_full_diagnostics(apply_reset=False)
-
-    def run_test_with_optimize(self):
-        self.run_full_diagnostics(apply_reset=True)
-
-    def run_full_diagnostics(self, apply_reset: bool):
+    def run_full_diagnostics(self):
         self.run_button.stop_pulse()
         self.run_button.setEnabled(False)
-        self.reset_button.setEnabled(False)
         self.run_button.set_busy(True)
         self.add_particle_burst(self.width() // 2, self.height() // 2 + 50, 30)
         self.add_pulse_ring(self.width() // 2, self.height() // 2 + 50)
@@ -893,7 +952,7 @@ class NetworkOptimizerUI(GalaxyBackground):
         self.status_label.setText("Running smart diagnostics...")
         self.substatus_label.setText("Selecting best target and endpoint")
 
-        self.worker = DiagnosticsWorker(apply_reset=apply_reset)
+        self.worker = DiagnosticsWorker(apply_reset=True)
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
@@ -932,7 +991,6 @@ class NetworkOptimizerUI(GalaxyBackground):
         self.progress.setFormat("Complete")
 
         self.run_button.setEnabled(True)
-        self.reset_button.setEnabled(True)
         self.run_button.set_busy(False)
         self.run_button.start_pulse()
 
@@ -948,6 +1006,7 @@ class NetworkOptimizerUI(GalaxyBackground):
         nic_name = nic_info.get("name", "Unknown")
         nic_mac = nic_info.get("mac", "Unknown")
         download_label = data.get("download_label", "Unavailable")
+        speedtest_label = data.get("speedtest_label", "Unavailable")
 
         msg = QMessageBox(self)
         msg.setWindowTitle("Network Diagnostics Summary")
@@ -957,6 +1016,7 @@ class NetworkOptimizerUI(GalaxyBackground):
             f"Interface: {nic_name}\n"
             f"MAC: {nic_mac}\n"
             f"Link Speed: {nic_speed}\n"
+            f"Speedtest Server: {speedtest_label}\n"
             f"Download Source: {download_label}\n"
             f"Optimize: {reset_note}\n\n"
             f"Before:\n"
@@ -995,7 +1055,6 @@ class NetworkOptimizerUI(GalaxyBackground):
         self.progress.setFormat("Error")
         QMessageBox.critical(self, "Error", error_msg)
         self.run_button.setEnabled(True)
-        self.reset_button.setEnabled(True)
         self.run_button.set_busy(False)
         self.run_button.start_pulse()
 
