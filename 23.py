@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v2.2"
+VERSION = "v2.3"
 
 SAFE_MODE = True
 CREATE_RESTORE_POINT = True
@@ -583,17 +583,19 @@ class GalaxyBackground(QWidget):
         self.pulse_rings = []
         self.nebula_offset = 0
         self.scan_phase = 0
+        self.enable_fx = False
         self.set_theme("dark")
 
-        for _ in range(90):
+        for i in range(90):
             self.stars.append({
-                'x': random.randint(0, 1200),
-                'y': random.randint(0, 800),
-                'size': random.uniform(1, 3),
-                'speed': random.uniform(0.3, 1.5),
-                'brightness': random.uniform(0.3, 1.0),
-                'twinkle_speed': random.uniform(0.02, 0.08),
-                'twinkle_phase': random.uniform(0, 6.28)
+                'x': (i * 127) % 1200,
+                'y': (i * 73) % 800,
+                'size': 1 + (i % 3),
+                'speed': 0.4 + ((i % 6) * 0.15),
+                'brightness': 0.45 + ((i % 5) * 0.1),
+                'twinkle_speed': 0.02 + ((i % 4) * 0.012),
+                'twinkle_phase': i * 0.35,
+                'seed': i,
             })
 
         self.timer = QTimer(self)
@@ -602,6 +604,8 @@ class GalaxyBackground(QWidget):
         self.timer.start(16)
 
     def add_particle_burst(self, x, y, count=20):
+        if not self.enable_fx:
+            return
         for _ in range(count):
             speed = random.uniform(2, 6)
             self.particles.append(Particle(
@@ -613,6 +617,8 @@ class GalaxyBackground(QWidget):
             ))
 
     def add_pulse_ring(self, x, y, color=None):
+        if not self.enable_fx:
+            return
         self.pulse_rings.append(PulseRing(x, y, color=color or self.ring_color))
 
     def set_theme(self, theme):
@@ -635,45 +641,41 @@ class GalaxyBackground(QWidget):
         self.update()
 
     def spawn_comet(self):
-        if random.random() < 0.03:
-            self.comets.append({
-                'x': random.randint(0, max(self.width(), 1)),
-                'y': random.randint(-200, 0),
-                'vx': random.uniform(-3, -1),
-                'vy': random.uniform(4, 7),
-                'life': 1.0
-            })
+        if not self.enable_fx:
+            return
 
     def animate(self):
         for star in self.stars:
             star['y'] += star['speed']
             if star['y'] > self.height():
-                star['x'] = random.randint(0, max(self.width(), 1))
+                w = max(self.width(), 1)
+                star['x'] = (star.get('seed', 0) * 97 + int(self.scan_phase) * 3) % w
                 star['y'] = 0
-                star['brightness'] = random.uniform(0.3, 1.0)
+                star['brightness'] = 0.45 + ((star.get('seed', 0) % 5) * 0.1)
             star['twinkle_phase'] += star['twinkle_speed']
             star['brightness'] = 0.4 + 0.6 * abs(math.sin(star['twinkle_phase']))
 
-        for particle in self.particles[:]:
-            particle.x += particle.vx
-            particle.y += particle.vy
-            particle.vy += 0.2
-            particle.life -= 0.02
-            if particle.life <= 0:
-                self.particles.remove(particle)
+        if self.enable_fx:
+            for particle in self.particles[:]:
+                particle.x += particle.vx
+                particle.y += particle.vy
+                particle.vy += 0.2
+                particle.life -= 0.02
+                if particle.life <= 0:
+                    self.particles.remove(particle)
 
-        for ring in self.pulse_rings[:]:
-            ring.radius += ring.speed
-            ring.alpha -= 4
-            if ring.radius > ring.max_radius or ring.alpha <= 0:
-                self.pulse_rings.remove(ring)
+            for ring in self.pulse_rings[:]:
+                ring.radius += ring.speed
+                ring.alpha -= 4
+                if ring.radius > ring.max_radius or ring.alpha <= 0:
+                    self.pulse_rings.remove(ring)
 
-        for comet in self.comets[:]:
-            comet['x'] += comet['vx']
-            comet['y'] += comet['vy']
-            comet['life'] -= 0.015
-            if comet['life'] <= 0 or comet['x'] < -200 or comet['y'] > self.height() + 200:
-                self.comets.remove(comet)
+            for comet in self.comets[:]:
+                comet['x'] += comet['vx']
+                comet['y'] += comet['vy']
+                comet['life'] -= 0.015
+                if comet['life'] <= 0 or comet['x'] < -200 or comet['y'] > self.height() + 200:
+                    self.comets.remove(comet)
 
         self.nebula_offset = (self.nebula_offset + 0.5) % 360
         self.scan_phase = (self.scan_phase + 1) % 360
@@ -704,30 +706,31 @@ class GalaxyBackground(QWidget):
             painter.setBrush(star_color)
             painter.drawEllipse(QRectF(star['x'], star['y'], star['size'], star['size']))
 
-        for particle in self.particles:
-            alpha = int(255 * particle.life)
-            color = QColor(particle.color)
-            color.setAlpha(alpha)
-            painter.setBrush(color)
-            painter.drawEllipse(QRectF(particle.x - particle.size/2, particle.y - particle.size/2, particle.size, particle.size))
+        if self.enable_fx:
+            for particle in self.particles:
+                alpha = int(255 * particle.life)
+                color = QColor(particle.color)
+                color.setAlpha(alpha)
+                painter.setBrush(color)
+                painter.drawEllipse(QRectF(particle.x - particle.size/2, particle.y - particle.size/2, particle.size, particle.size))
 
-        for comet in self.comets:
-            alpha = int(180 * comet['life'])
-            comet_color = QColor(self.comet_color)
-            comet_color.setAlpha(alpha)
-            painter.setBrush(comet_color)
-            painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
-            tail_color = QColor(self.comet_color)
-            tail_color.setAlpha(max(40, alpha // 2))
-            painter.setPen(QPen(tail_color, 2))
-            painter.drawLine(int(comet['x']), int(comet['y']), int(comet['x'] - comet['vx'] * 6), int(comet['y'] - comet['vy'] * 6))
+            for comet in self.comets:
+                alpha = int(180 * comet['life'])
+                comet_color = QColor(self.comet_color)
+                comet_color.setAlpha(alpha)
+                painter.setBrush(comet_color)
+                painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
+                tail_color = QColor(self.comet_color)
+                tail_color.setAlpha(max(40, alpha // 2))
+                painter.setPen(QPen(tail_color, 2))
+                painter.drawLine(int(comet['x']), int(comet['y']), int(comet['x'] - comet['vx'] * 6), int(comet['y'] - comet['vy'] * 6))
 
-        for ring in self.pulse_rings:
-            ring_color = QColor(ring.color)
-            ring_color.setAlpha(max(0, ring.alpha))
-            painter.setPen(QPen(ring_color, 2))
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.drawEllipse(QPointF(ring.x, ring.y), ring.radius, ring.radius)
+            for ring in self.pulse_rings:
+                ring_color = QColor(ring.color)
+                ring_color.setAlpha(max(0, ring.alpha))
+                painter.setPen(QPen(ring_color, 2))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(QPointF(ring.x, ring.y), ring.radius, ring.radius)
 
         glow = QRadialGradient(self.width() * 0.7, self.height() * 0.25, self.width() * 0.8)
         glow.setColorAt(0, self.glow_colors[0])
@@ -948,7 +951,7 @@ class OptimizerUI(GalaxyBackground):
         self.title_label = QLabel(APP_NAME)
         self.title_label.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
 
-        self.subtitle_label = PulseLabel("One-click deep optimization • modern UI • max performance")
+        self.subtitle_label = PulseLabel("One-click deep optimization with clean, pro execution")
         self.subtitle_label.setFont(QFont("Segoe UI", 12))
 
         badges_layout = QHBoxLayout()
@@ -1053,8 +1056,6 @@ class OptimizerUI(GalaxyBackground):
         self.button.stop_pulse()
         self.button.setEnabled(False)
         self.button.set_busy(True)
-        self.add_particle_burst(self.width()//2, self.height()//2 + 50, 30)
-        self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
         self.progress.setValue(0)
         self.progress.setFormat("Optimizing... %p%")
 
@@ -1156,9 +1157,6 @@ class OptimizerUI(GalaxyBackground):
 
     def update_progress(self, value):
         self.progress.setValue(value)
-        if value % 10 == 0 and value > 0:
-            self.add_particle_burst(random.randint(100, self.width()-100), random.randint(100, self.height()-100), 10)
-            self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
 
     def update_step_label(self, current, total):
         self.step_label.setText(f"Pipeline step: {current}/{total}")
@@ -1190,7 +1188,6 @@ class OptimizerUI(GalaxyBackground):
 
         self.progress.setValue(100)
         self.progress.setFormat("Complete")
-        self.add_particle_burst(self.width()//2, self.height()//2, 24)
 
         msg = QMessageBox(self)
         msg.setWindowTitle("Optimization Complete")
