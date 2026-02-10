@@ -13,11 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v2.3"
-
-SAFE_MODE = True
-CREATE_RESTORE_POINT = True
-
+VERSION = "v2.5"
 
 # ===============================
 # ADMIN CHECK
@@ -54,7 +50,6 @@ class OptimizerWorker(QObject):
     progress = pyqtSignal(int)
     status = pyqtSignal(str)
     substatus = pyqtSignal(str)
-    insight = pyqtSignal(str)
     done = pyqtSignal(dict)
     error = pyqtSignal(str)
 
@@ -80,9 +75,8 @@ class OptimizerWorker(QObject):
             self.sys = self.get_system_info()
             time.sleep(0.3)
 
-            self.status.emit("Preparing one-click optimization plan...")
+            self.status.emit("Preparing full optimization...")
             self.stats['disk_free_gb'] = self.get_disk_free_gb()
-            self.insight.emit(f"One-click optimization ready • Free Space: {self.stats['disk_free_gb']}GB")
             time.sleep(0.3)
 
             if self.create_restore_point_enabled:
@@ -91,7 +85,7 @@ class OptimizerWorker(QObject):
             steps = self._get_optimization_steps()
             total = len(steps)
 
-            for i, (step_func, step_name, is_safe) in enumerate(steps):
+            for i, (step_func, step_name, _) in enumerate(steps):
                 try:
                     self.status.emit(step_name)
                     step_func()
@@ -158,7 +152,6 @@ class OptimizerWorker(QObject):
             (self.disable_nagle, "Disabling Nagle for lower latency", False),
         ]
         steps.extend([
-            (self.optimize_network_latency, "Reapplying latency profile", False),
             (self.enforce_ultimate_power, "Enforcing Ultimate Performance profile", False),
             (self.disable_idle_states, "Reducing platform idle latency", False),
         ])
@@ -892,21 +885,8 @@ class OptimizerUI(GalaxyBackground):
         self.title_label = QLabel(APP_NAME)
         self.title_label.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
 
-        self.subtitle_label = PulseLabel("One-click deep optimization with clean, pro execution")
+        self.subtitle_label = PulseLabel("Full system optimization in one click")
         self.subtitle_label.setFont(QFont("Segoe UI", 12))
-
-        badges_layout = QHBoxLayout()
-        badges_layout.setSpacing(10)
-        badges_layout.addStretch()
-        self.badges = []
-        for badge_text in ("One-Click", "Windows 10/11", "Adaptive AI", "FPS + Latency", "Safe/Advanced"):
-            badge = QLabel(badge_text)
-            badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            badges_layout.addWidget(badge)
-            self.badges.append(badge)
-
-        badges_layout.addStretch()
-
 
         self.header_line = QFrame()
         self.header_line.setFixedHeight(2)
@@ -935,18 +915,12 @@ class OptimizerUI(GalaxyBackground):
         self.status = QLabel("Ready to optimize")
         self.status.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
 
-        self.substatus = QLabel("Click Start to run optimization pipeline")
+        self.substatus = QLabel("Ready")
         self.substatus.setFont(QFont("Segoe UI", 11))
 
-        self.ai_status = PulseLabel("One-click optimization ready", min_opacity=0.55, max_opacity=0.95)
-        self.ai_status.setFont(QFont("Segoe UI", 10))
-
-        self.safety_note = QLabel("One click. Full optimization.")
-        self.safety_note.setFont(QFont("Segoe UI", 9))
 
         content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addLayout(badges_layout)
         content_layout.addWidget(self.header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
@@ -954,8 +928,6 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
@@ -970,13 +942,11 @@ class OptimizerUI(GalaxyBackground):
         self.progress.setValue(0)
         self.progress.setFormat("Optimizing... %p%")
 
-        self.safety_note.setText("Running full one-click optimization...")
 
         self.worker = OptimizerWorker()
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
-        self.worker.insight.connect(self.update_insight)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
 
@@ -990,14 +960,6 @@ class OptimizerUI(GalaxyBackground):
         self.title_label.setStyleSheet(f"color: {palette['text_primary']}; letter-spacing: 1px;")
         self.subtitle_label.setStyleSheet(f"color: {palette['text_secondary']};")
 
-        badge_style = (
-            f"color: {palette['text_primary']};"
-            f"background: {palette['badge_bg']};"
-            f"border: 1px solid {palette['badge_border']};"
-            "padding: 4px 10px; border-radius: 10px;"
-        )
-        for badge in self.badges:
-            badge.setStyleSheet(badge_style)
 
         self.header_line.setStyleSheet(
             "background: qlineargradient(x1:0, y1:0, x2:1, y2:0, "
@@ -1006,8 +968,6 @@ class OptimizerUI(GalaxyBackground):
 
         self.status.setStyleSheet(f"color: {palette['accent']}; letter-spacing: 0.4px;")
         self.substatus.setStyleSheet(f"color: {palette['text_secondary']};")
-        self.ai_status.setStyleSheet(f"color: {palette['text_muted']};")
-        self.safety_note.setStyleSheet(f"color: {palette['success']};")
 
         self.button.set_palette({
             "bg_start": palette["accent"],
@@ -1049,8 +1009,6 @@ class OptimizerUI(GalaxyBackground):
     def update_substatus(self, text):
         self.substatus.setText(text)
 
-    def update_insight(self, text):
-        self.ai_status.setText(text)
 
     def finish_optimization(self, stats):
         self.status.setText("✨ Optimization Complete!")
@@ -1094,6 +1052,8 @@ class OptimizerUI(GalaxyBackground):
         self.button.start_pulse()
         self.progress.setValue(0)
         self.progress.setFormat("Ready")
+        self.subtitle_label.setText("Full system optimization in one click")
+        self.substatus.setText("Ready")
 
     def handle_error(self, error_msg):
         self.status.setText("❌ Error occurred")
