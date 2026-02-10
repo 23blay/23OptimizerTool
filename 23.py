@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearG
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame
+    QHBoxLayout, QFrame, QCheckBox
 )
 
 APP_NAME = "23 Optimizer"
@@ -689,6 +689,7 @@ class GalaxyBackground(QWidget):
         self.pulse_rings = []
         self.nebula_offset = 0
         self.scan_phase = 0
+        self.visual_fx_enabled = False
         
         # Create star field with twinkle
         for _ in range(200):
@@ -735,17 +736,18 @@ class GalaxyBackground(QWidget):
             })
 
     def animate(self):
-        # Animate stars with twinkle
-        for star in self.stars:
-            star['y'] += star['speed']
-            if star['y'] > self.height():
-                star['x'] = random.randint(0, self.width())
-                star['y'] = 0
-                star['brightness'] = random.uniform(0.3, 1.0)
-            
-            # Twinkle effect
-            star['twinkle_phase'] += star['twinkle_speed']
-            star['brightness'] = 0.4 + 0.6 * abs(math.sin(star['twinkle_phase']))
+        if self.visual_fx_enabled:
+            # Animate stars with twinkle
+            for star in self.stars:
+                star['y'] += star['speed']
+                if star['y'] > self.height():
+                    star['x'] = random.randint(0, self.width())
+                    star['y'] = 0
+                    star['brightness'] = random.uniform(0.3, 1.0)
+
+                # Twinkle effect
+                star['twinkle_phase'] += star['twinkle_speed']
+                star['brightness'] = 0.4 + 0.6 * abs(math.sin(star['twinkle_phase']))
         
         # Animate particles
         for particle in self.particles[:]:
@@ -775,7 +777,10 @@ class GalaxyBackground(QWidget):
             self.nebula_offset = 0
 
         self.scan_phase = (self.scan_phase + 1) % 360
-        self.spawn_comet()
+        if self.visual_fx_enabled:
+            self.spawn_comet()
+        else:
+            self.comets.clear()
 
         self.update()
 
@@ -802,12 +807,13 @@ class GalaxyBackground(QWidget):
         nebula.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), nebula)
 
-        # Draw stars
-        painter.setPen(Qt.PenStyle.NoPen)
-        for star in self.stars:
-            alpha = int(255 * star['brightness'])
-            painter.setBrush(QColor(255, 255, 255, alpha))
-            painter.drawEllipse(QRectF(star['x'], star['y'], star['size'], star['size']))
+        if self.visual_fx_enabled:
+            # Draw stars
+            painter.setPen(Qt.PenStyle.NoPen)
+            for star in self.stars:
+                alpha = int(255 * star['brightness'])
+                painter.setBrush(QColor(255, 255, 255, alpha))
+                painter.drawEllipse(QRectF(star['x'], star['y'], star['size'], star['size']))
         
         # Draw particles
         for particle in self.particles:
@@ -821,20 +827,21 @@ class GalaxyBackground(QWidget):
                 particle.size, particle.size
             ))
 
-        # Draw comets
-        painter.setPen(Qt.PenStyle.NoPen)
-        for comet in self.comets:
-            alpha = int(180 * comet['life'])
-            painter.setBrush(QColor(248, 113, 113, alpha))
-            painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
-            tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
-            painter.setPen(tail_pen)
-            painter.drawLine(
-                int(comet['x']),
-                int(comet['y']),
-                int(comet['x'] - comet['vx'] * 6),
-                int(comet['y'] - comet['vy'] * 6)
-            )
+        if self.visual_fx_enabled:
+            # Draw comets
+            painter.setPen(Qt.PenStyle.NoPen)
+            for comet in self.comets:
+                alpha = int(180 * comet['life'])
+                painter.setBrush(QColor(248, 113, 113, alpha))
+                painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
+                tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
+                painter.setPen(tail_pen)
+                painter.drawLine(
+                    int(comet['x']),
+                    int(comet['y']),
+                    int(comet['x'] - comet['vx'] * 6),
+                    int(comet['y'] - comet['vy'] * 6)
+                )
 
         # Draw pulse rings
         painter.setPen(Qt.PenStyle.NoPen)
@@ -852,6 +859,12 @@ class GalaxyBackground(QWidget):
         glow.setColorAt(0.7, QColor(239, 68, 68, 12))
         glow.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), glow)
+
+    def set_visual_fx_enabled(self, enabled: bool):
+        self.visual_fx_enabled = enabled
+        if not enabled:
+            self.comets.clear()
+        self.update()
 
 # ===============================
 # STAT CARD WIDGET
@@ -942,6 +955,7 @@ class AnimatedButton(QPushButton):
         self.glow_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         
         self.update_style()
+        self._click_anim = None
     
     def start_pulse(self):
         self.pulse_anim.start()
@@ -1005,6 +1019,34 @@ class AnimatedButton(QPushButton):
         self.glow_anim.setDirection(QPropertyAnimation.Direction.Backward)
         self.glow_anim.start()
         super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        self.animate_click_press()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.animate_click_release()
+        super().mouseReleaseEvent(event)
+
+    def animate_click_press(self):
+        self._animate_button_size(0.97, 120)
+
+    def animate_click_release(self):
+        self._animate_button_size(1.0, 160)
+
+    def _animate_button_size(self, scale, duration):
+        current_geo = self.geometry()
+        target_w = int(current_geo.width() * scale)
+        target_h = int(current_geo.height() * scale)
+        target_x = current_geo.x() + (current_geo.width() - target_w) // 2
+        target_y = current_geo.y() + (current_geo.height() - target_h) // 2
+
+        self._click_anim = QPropertyAnimation(self, b"geometry")
+        self._click_anim.setDuration(duration)
+        self._click_anim.setStartValue(current_geo)
+        self._click_anim.setEndValue(QRectF(target_x, target_y, target_w, target_h).toRect())
+        self._click_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._click_anim.start()
 
 # ===============================
 # ENHANCED PROGRESS BAR
@@ -1121,6 +1163,35 @@ class OptimizerUI(GalaxyBackground):
         self.safety_note.setFont(QFont("Segoe UI", 9))
         self.safety_note.setStyleSheet("color: #fcd34d;")
 
+        # Behavior toggles
+        toggles_row = QHBoxLayout()
+        toggles_row.setSpacing(24)
+        toggles_row.addStretch()
+
+        self.visual_fx_checkbox = QCheckBox("Enable visual FX")
+        self.visual_fx_checkbox.setChecked(False)
+        self.visual_fx_checkbox.setStyleSheet(
+            "QCheckBox { color: #fecaca; font: 10pt 'Segoe UI'; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; }"
+        )
+        self.visual_fx_checkbox.toggled.connect(self.set_visual_fx_enabled)
+
+        self.show_completion_checkbox = QCheckBox("Show completion dialog")
+        self.show_completion_checkbox.setChecked(True)
+        self.show_completion_checkbox.setStyleSheet(
+            "QCheckBox { color: #fecaca; font: 10pt 'Segoe UI'; }"
+            "QCheckBox::indicator { width: 16px; height: 16px; }"
+        )
+
+        toggles_row.addWidget(self.visual_fx_checkbox)
+        toggles_row.addWidget(self.show_completion_checkbox)
+        toggles_row.addStretch()
+
+        self.dialog_hint = PulseLabel("Completion summary pop-up is enabled", min_opacity=0.5, max_opacity=0.95)
+        self.dialog_hint.setFont(QFont("Segoe UI", 9))
+        self.dialog_hint.setStyleSheet("color: #fca5a5;")
+        self.show_completion_checkbox.toggled.connect(self.update_completion_hint)
+
         # Layout assembly
         content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -1134,6 +1205,10 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addLayout(toggles_row)
+        content_layout.addWidget(self.dialog_hint, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self.update_completion_hint(self.show_completion_checkbox.isChecked())
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
@@ -1200,41 +1275,42 @@ class OptimizerUI(GalaxyBackground):
         # Subtle particle burst
         self.add_particle_burst(self.width()//2, self.height()//2, 24)
         
-        # Show summary
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Optimization Complete")
-        msg.setText(
-            f"✅ System optimization completed!\n\n"
-            f"📊 Statistics:\n"
-            f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
-            f"• Optimizations: {stats['optimizations_applied']}\n"
-            f"• Duration: {stats['duration']:.1f}s\n"
-            f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
-            f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
-            f"• Errors: {stats['errors']}\n"
-            f"• Skipped: {stats['skipped']} (advanced features)"
-        )
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setStyleSheet("""
-            QMessageBox {
-                background: #1a1a1a;
-            }
-            QMessageBox QLabel {
-                color: white;
-                font-family: 'Segoe UI';
-            }
-            QPushButton {
-                background: #ef4444;
-                color: white;
-                padding: 8px 20px;
-                border-radius: 6px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #f87171;
-            }
-        """)
-        msg.exec()
+        if self.show_completion_checkbox.isChecked():
+            # Show summary
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Optimization Complete")
+            msg.setText(
+                f"✅ System optimization completed!\n\n"
+                f"📊 Statistics:\n"
+                f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
+                f"• Optimizations: {stats['optimizations_applied']}\n"
+                f"• Duration: {stats['duration']:.1f}s\n"
+                f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
+                f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
+                f"• Errors: {stats['errors']}\n"
+                f"• Skipped: {stats['skipped']} (advanced features)"
+            )
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setStyleSheet("""
+                QMessageBox {
+                    background: #1a1a1a;
+                }
+                QMessageBox QLabel {
+                    color: white;
+                    font-family: 'Segoe UI';
+                }
+                QPushButton {
+                    background: #ef4444;
+                    color: white;
+                    padding: 8px 20px;
+                    border-radius: 6px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #f87171;
+                }
+            """)
+            msg.exec()
         
         # Re-enable button
         self.button.setEnabled(True)
@@ -1242,6 +1318,35 @@ class OptimizerUI(GalaxyBackground):
         self.button.start_pulse()
         self.progress.setValue(0)
         self.progress.setFormat("Ready")
+
+    def update_completion_hint(self, enabled: bool):
+        if enabled:
+            self.dialog_hint.setText("Completion summary pop-up is enabled")
+            self.dialog_hint.show()
+            self._fade_widget(self.dialog_hint, 0.0, 1.0, 280)
+        else:
+            self._fade_widget(self.dialog_hint, 1.0, 0.0, 240, hide_when_done=True)
+
+    def _fade_widget(self, widget, start_opacity, end_opacity, duration, hide_when_done=False):
+        effect = widget.graphicsEffect()
+        if not isinstance(effect, QGraphicsOpacityEffect):
+            effect = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(effect)
+
+        if end_opacity > 0:
+            widget.show()
+
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(duration)
+        anim.setStartValue(start_opacity)
+        anim.setEndValue(end_opacity)
+        anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        if hide_when_done:
+            anim.finished.connect(widget.hide)
+
+        # Keep a reference so animation isn't garbage collected
+        self._widget_fade_anim = anim
+        anim.start()
 
     def handle_error(self, error_msg):
         self.status.setText("❌ Error occurred")
