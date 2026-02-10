@@ -1238,6 +1238,8 @@ class OptimizerUI(GalaxyBackground):
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
+        self.cleaned_card.setObjectName("statCard")
+        self.optimized_card.setObjectName("statCard")
         for card in (self.cleaned_card, self.optimized_card):
             card.setFixedSize(170, 80)
         
@@ -1277,10 +1279,16 @@ class OptimizerUI(GalaxyBackground):
 
         # Settings panel
         self.settings_panel = QFrame()
+        self.settings_panel.setObjectName("settingsPanel")
+        self.settings_panel.setFixedWidth(360)
         self.settings_panel.setVisible(False)
         settings_layout = QVBoxLayout(self.settings_panel)
         settings_layout.setContentsMargins(14, 10, 14, 10)
         settings_layout.setSpacing(10)
+
+        self.settings_title = QLabel("Settings")
+        self.settings_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        settings_layout.addWidget(self.settings_title)
 
         self.visual_fx_checkbox = QCheckBox("Enable visual FX")
         self.visual_fx_checkbox.setChecked(False)
@@ -1456,6 +1464,7 @@ class OptimizerUI(GalaxyBackground):
         anim.start()
 
     def toggle_settings_panel(self):
+        self.settings_btn.setText("⚙" if self.settings_panel.isVisible() else "✕")
         self.settings_panel.setVisible(not self.settings_panel.isVisible())
         self._fade_widget(
             self.settings_panel,
@@ -1474,26 +1483,60 @@ class OptimizerUI(GalaxyBackground):
         accent = self.theme["accent"]
         bg = "rgba(248, 250, 252, 0.80)" if is_light else "rgba(2, 6, 23, 0.78)"
         panel_border = "#cbd5e1" if is_light else "#334155"
+        hover_ring = "#94a3b8" if is_light else "#f87171"
+        panel_bg = "rgba(255, 255, 255, 0.95)" if is_light else "rgba(17, 24, 39, 0.92)"
+        stat_bg = "rgba(241, 245, 249, 0.55)" if is_light else "rgba(15, 23, 42, 0.45)"
         self.setStyleSheet(
             f"""
             QWidget {{ background: transparent; color: {self.theme['text']}; }}
-            QFrame {{ background: {self.theme['panel']}; border-radius: 10px; border: 1px solid {panel_border}; }}
             QCheckBox {{ color: {self.theme['muted']}; font: 10pt 'Segoe UI'; }}
             QCheckBox::indicator {{ width: 16px; height: 16px; }}
+            QCheckBox::indicator:unchecked {{
+                border: 1px solid {panel_border};
+                border-radius: 4px;
+                background: {'#ffffff' if is_light else '#0f172a'};
+            }}
+            QCheckBox::indicator:checked {{
+                border: 1px solid {accent};
+                border-radius: 4px;
+                background: {accent};
+            }}
             QToolButton#settings {{
-                background: {'#e5e7eb' if is_light else '#111827'};
-                color: {accent};
+                background: qradialgradient(cx:0.35, cy:0.35, radius:0.9,
+                    fx:0.35, fy:0.35,
+                    stop:0 {'#ffffff' if is_light else '#1f2937'},
+                    stop:1 {'#dbe2ea' if is_light else '#0b1220'});
+                color: {'#111827' if is_light else '#f8fafc'};
                 border: 1px solid {accent};
                 border-radius: 19px;
                 font-size: 16px;
                 font-weight: bold;
             }}
-            QToolButton#settings:hover {{ background: {'#d1d5db' if is_light else '#1f2937'}; }}
+            QToolButton#settings:hover {{
+                border: 1px solid {hover_ring};
+                background: {'#f8fafc' if is_light else '#1e293b'};
+            }}
+            QToolButton#settings:pressed {{
+                padding-top: 1px;
+                padding-left: 1px;
+                background: {'#e2e8f0' if is_light else '#0f172a'};
+            }}
+            QFrame#settingsPanel {{
+                background: {panel_bg};
+                border-radius: 12px;
+                border: 1px solid {panel_border};
+            }}
+            QFrame#statCard {{
+                background: {stat_bg};
+                border-radius: 12px;
+                border: 1px solid {panel_border};
+            }}
             """
         )
 
         self.title_label.setStyleSheet(f"color: {self.theme['text']}; letter-spacing: 2px;")
         self.subtitle_label.setStyleSheet(f"color: {self.theme['subtext']};")
+        self.settings_title.setStyleSheet(f"color: {self.theme['text']}; border: none;")
         self.header_line.setStyleSheet(
             f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 {accent}, stop:1 rgba(239,68,68,0)); border-radius: 1px;"
         )
