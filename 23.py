@@ -1,4 +1,5 @@
 import sys, os, ctypes, subprocess, shutil, random, time, winreg, math, json
+from collections import deque
 from pathlib import Path
 from threading import Thread
 
@@ -8,13 +9,13 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearGradient
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QPushButton, QLabel, QCheckBox,
+    QApplication, QWidget, QPushButton, QLabel, QCheckBox, QPlainTextEdit,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
     QHBoxLayout, QFrame, QDialog, QDialogButtonBox
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v2.7"
+VERSION = "v2.8"
 
 
 SETTINGS_PATH = Path.home() / ".23optimizer_settings.json"
@@ -22,6 +23,7 @@ DEFAULT_SETTINGS = {
     "create_restore_point": True,
     "enable_visual_fx": False,
     "show_completion_dialog": True,
+    "dark_mode": True,
 }
 
 
@@ -58,8 +60,10 @@ class SettingsDialog(QDialog):
         self.fx_cb.setChecked(settings["enable_visual_fx"])
         self.summary_cb = QCheckBox("Show completion summary dialog")
         self.summary_cb.setChecked(settings["show_completion_dialog"])
+        self.theme_cb = QCheckBox("Use dark mode (red/black)")
+        self.theme_cb.setChecked(settings.get("dark_mode", True))
 
-        for w in (self.restore_cb, self.fx_cb, self.summary_cb):
+        for w in (self.restore_cb, self.fx_cb, self.summary_cb, self.theme_cb):
             layout.addWidget(w)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
@@ -79,6 +83,7 @@ class SettingsDialog(QDialog):
             "create_restore_point": self.restore_cb.isChecked(),
             "enable_visual_fx": self.fx_cb.isChecked(),
             "show_completion_dialog": self.summary_cb.isChecked(),
+            "dark_mode": self.theme_cb.isChecked(),
         }
 
 
@@ -119,6 +124,7 @@ class OptimizerWorker(QObject):
     substatus = pyqtSignal(str)
     done = pyqtSignal(dict)
     error = pyqtSignal(str)
+    step_detail = pyqtSignal(str, str)
 
     def __init__(self, settings):
         super().__init__()
@@ -134,6 +140,51 @@ class OptimizerWorker(QObject):
             'disk_free_gb': 0
         }
         self.ai_profile = {}
+
+
+    def _friendly_text(self, func_name, title):
+        mapping = {
+            "clear_crash_dumps": "Deletes old crash files that waste disk space.",
+            "clear_shader_cache": "Rebuilds shader cache to reduce stutter in games.",
+            "clear_browser_cache": "Removes heavy browser cache files.",
+            "clear_spooler_cache": "Cleans print spooler leftovers.",
+            "clear_cbs_logs": "Removes old servicing logs.",
+            "clear_dism_logs": "Clears DISM maintenance logs.",
+            "clear_icon_cache": "Refreshes icon cache for cleaner shell behavior.",
+            "clear_windows_update_cache": "Deletes stale Windows Update download files.",
+            "clear_temp": "Cleans user and system temporary folders.",
+            "clear_prefetch": "Refreshes prefetch data for startup consistency.",
+            "clear_recycle_bin": "Empties recycle bin permanently.",
+            "clear_error_reports": "Removes stored Windows error report files.",
+            "clear_windows_logs": "Clears event logs for cleanup.",
+            "clear_thumbnail_cache": "Deletes cached thumbnails.",
+            "clear_delivery_optimization_cache": "Cleans Delivery Optimization cache files.",
+            "flush_dns": "Flushes DNS cache to refresh network name resolution.",
+            "optimize_dns": "Applies DNS cache settings for responsiveness.",
+            "reset_network": "Resets Winsock and TCP/IP stack.",
+            "optimize_network_latency": "Applies network latency tuning values.",
+            "optimize_disk": "Runs SSD/HDD specific optimization.",
+            "disable_last_access": "Disables last-access metadata updates.",
+            "optimize_ntfs": "Applies NTFS behavior performance settings.",
+            "optimize_visuals": "Sets visual effects for performance mode.",
+            "optimize_explorer": "Tunes Explorer defaults for lower overhead.",
+            "optimize_startup": "Removes startup delay from Explorer shell.",
+            "reduce_menu_delay": "Makes menu response immediate.",
+            "optimize_notifications": "Disables suggestion-related background noise.",
+            "enable_storage_sense": "Turns on automatic storage cleanup policy.",
+            "disable_telemetry": "Disables major telemetry collection paths.",
+            "optimize_windows_search": "Reduces indexing overhead behavior.",
+            "disable_unnecessary_services": "Disables safe non-critical background services.",
+            "optimize_power_plan": "Switches to highest performance power plan.",
+            "optimize_system_responsiveness": "Prioritizes active workload responsiveness.",
+            "optimize_game_mode": "Enables Windows Game Mode.",
+            "disable_game_dvr": "Disables Game DVR capture overhead.",
+            "enable_hags": "Enables hardware accelerated GPU scheduling.",
+            "disable_nagle": "Disables Nagle to reduce packet latency.",
+            "enforce_ultimate_power": "Forces Ultimate Performance profile.",
+            "disable_idle_states": "Applies low-latency boot scheduler flags.",
+        }
+        return mapping.get(func_name, title)
 
     def run(self):
         start_time = time.time()
@@ -156,6 +207,7 @@ class OptimizerWorker(QObject):
             for i, (step_func, step_name, _) in enumerate(steps):
                 try:
                     self.status.emit(step_name)
+                    self.step_detail.emit(step_name, self._friendly_text(step_func.__name__, step_name))
                     step_func()
                     self.stats['optimizations_applied'] += 1
                 except Exception as e:
@@ -634,13 +686,13 @@ class GalaxyBackground(QWidget):
             self.ring_color = QColor(239, 68, 68)
             self.glow_colors = (QColor(220, 38, 38, 24), QColor(127, 29, 29, 12), QColor(0, 0, 0, 0))
         else:
-            self.background_colors = (QColor(20, 10, 10), QColor(12, 6, 6), QColor(6, 3, 3))
-            self.nebula_colors = (QColor(248, 113, 113, 35), QColor(220, 38, 38, 22), QColor(0, 0, 0, 0))
-            self.star_color = QColor(254, 202, 202)
-            self.particle_colors = [QColor(220, 38, 38), QColor(248, 113, 113), QColor(185, 28, 28)]
-            self.comet_color = QColor(248, 113, 113)
-            self.ring_color = QColor(239, 68, 68)
-            self.glow_colors = (QColor(220, 38, 38, 22), QColor(127, 29, 29, 10), QColor(0, 0, 0, 0))
+            self.background_colors = (QColor(255, 255, 255), QColor(255, 245, 245), QColor(254, 226, 226))
+            self.nebula_colors = (QColor(239, 68, 68, 26), QColor(248, 113, 113, 14), QColor(255, 255, 255, 0))
+            self.star_color = QColor(185, 28, 28)
+            self.particle_colors = [QColor(220, 38, 38), QColor(248, 113, 113), QColor(239, 68, 68)]
+            self.comet_color = QColor(239, 68, 68)
+            self.ring_color = QColor(220, 38, 38)
+            self.glow_colors = (QColor(248, 113, 113, 16), QColor(252, 165, 165, 8), QColor(255, 255, 255, 0))
         self.update()
 
     def spawn_comet(self):
@@ -931,10 +983,10 @@ class OptimizerUI(GalaxyBackground):
         self.theme = "light"
         self.theme_palette = {
             "light": {
-                "text_primary": "#fee2e2", "text_secondary": "#fecaca", "text_muted": "#fca5a5", "accent": "#ef4444",
-                "accent_soft": "#f87171", "success": "#fca5a5", "badge_bg": "rgba(25, 10, 10, 0.86)",
-                "badge_border": "#7f1d1d", "card_bg": "rgba(20, 8, 8, 0.82)", "card_border": "#7f1d1d",
-                "progress_bg": "rgba(14, 6, 6, 0.72)", "progress_border": "#7f1d1d", "dialog_bg": "#120707", "dialog_text": "#fee2e2",
+                "text_primary": "#1f1111", "text_secondary": "#4b1f1f", "text_muted": "#7f1d1d", "accent": "#dc2626",
+                "accent_soft": "#ef4444", "success": "#b91c1c", "badge_bg": "rgba(255, 255, 255, 0.96)",
+                "badge_border": "#fecaca", "card_bg": "rgba(255, 255, 255, 0.95)", "card_border": "#fecaca",
+                "progress_bg": "rgba(255, 255, 255, 0.95)", "progress_border": "#fecaca", "dialog_bg": "#ffffff", "dialog_text": "#1f1111",
             },
             "dark": {
                 "text_primary": "#fee2e2", "text_secondary": "#fecaca", "text_muted": "#fca5a5", "accent": "#dc2626",
@@ -992,6 +1044,12 @@ class OptimizerUI(GalaxyBackground):
         self.substatus = QLabel("Ready")
         self.substatus.setFont(QFont("Segoe UI", 11))
 
+        self.activity_log = QPlainTextEdit()
+        self.activity_log.setReadOnly(True)
+        self.activity_log.setFixedHeight(160)
+        self.activity_log_queue = deque()
+        self.activity_timer = QTimer(self)
+        self.activity_timer.timeout.connect(self._flush_activity_queue)
 
         content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -1003,12 +1061,13 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.activity_log)
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
         layout.addStretch(1)
 
-        self.apply_theme("dark")
+        self.apply_theme("dark" if self.settings.get("dark_mode", True) else "light")
 
     def start_optimization(self):
         self.button.stop_pulse()
@@ -1017,12 +1076,15 @@ class OptimizerUI(GalaxyBackground):
         self.enable_fx = self.settings.get("enable_visual_fx", False)
         self.progress.setValue(0)
         self.progress.setFormat("Optimizing... %p%")
-
+        self.activity_log.clear()
+        self.activity_log_queue.clear()
+        self.activity_timer.start(240)
 
         self.worker = OptimizerWorker(self.settings)
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
+        self.worker.step_detail.connect(self.enqueue_activity)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
 
@@ -1046,6 +1108,7 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setStyleSheet(f"color: {palette['text_secondary']};")
 
         self.settings_button.setStyleSheet(f"background: {palette['card_bg']}; color: {palette['text_primary']}; border: 1px solid {palette['card_border']}; border-radius: 10px; padding: 8px 14px;")
+        self.activity_log.setStyleSheet(f"background: {palette['progress_bg']}; color: {palette['text_primary']}; border: 1px solid {palette['progress_border']}; border-radius: 10px; padding: 6px;")
 
         self.button.set_palette({
             "bg_start": palette["accent"],
@@ -1084,6 +1147,18 @@ class OptimizerUI(GalaxyBackground):
             self.settings = dialog.get_values()
             SettingsStore.save(self.settings)
             self.enable_fx = self.settings.get("enable_visual_fx", False)
+            self.apply_theme("dark" if self.settings.get("dark_mode", True) else "light")
+
+    def enqueue_activity(self, title, detail):
+        self.activity_log_queue.append(f"• {title} — {detail}")
+
+    def _flush_activity_queue(self):
+        if self.activity_log_queue:
+            self.activity_log.appendPlainText(self.activity_log_queue.popleft())
+            sb = self.activity_log.verticalScrollBar()
+            sb.setValue(sb.maximum())
+        elif self.progress.value() >= 100:
+            self.activity_timer.stop()
 
     def update_progress(self, value):
         self.progress.setValue(value)
@@ -1105,6 +1180,7 @@ class OptimizerUI(GalaxyBackground):
 
         self.progress.setValue(100)
         self.progress.setFormat("Complete")
+        self.activity_timer.stop()
 
         if self.settings.get("show_completion_dialog", True):
             msg = QMessageBox(self)
@@ -1145,6 +1221,7 @@ class OptimizerUI(GalaxyBackground):
         self.status.setText("❌ Error occurred")
         self.substatus.setText(error_msg)
         self.progress.setFormat("Error")
+        self.activity_timer.stop()
         QMessageBox.critical(self, "Error", f"An error occurred:\n{error_msg}")
         self.button.setEnabled(True)
         self.button.set_busy(False)
