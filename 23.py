@@ -14,7 +14,7 @@ from PyQt6.QtWidgets import (
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v2.6"
+VERSION = "v2.7"
 
 
 SETTINGS_PATH = Path.home() / ".23optimizer_settings.json"
@@ -577,15 +577,16 @@ class PulseRing:
 # GALAXY BACKGROUND WITH NEBULA
 # ===============================
 class GalaxyBackground(QWidget):
-    def __init__(self, settings):
+    def __init__(self, settings=None):
         super().__init__()
+        self.settings = settings or DEFAULT_SETTINGS.copy()
         self.stars = []
         self.particles = []
         self.comets = []
         self.pulse_rings = []
         self.nebula_offset = 0
         self.scan_phase = 0
-        self.enable_fx = False
+        self.enable_fx = bool(self.settings.get("enable_visual_fx", False))
         self.set_theme("dark")
 
         for i in range(90):
@@ -894,7 +895,7 @@ class AnimatedButton(QPushButton):
 
 
 class GlowProgressBar(QProgressBar):
-    def __init__(self, settings):
+    def __init__(self):
         super().__init__()
         self.setFixedHeight(24)
         self.setTextVisible(True)
@@ -922,8 +923,9 @@ class GlowProgressBar(QProgressBar):
 # MAIN WINDOW
 # ===============================
 class OptimizerUI(GalaxyBackground):
-    def __init__(self, settings):
-        super().__init__()
+    def __init__(self, settings=None):
+        self.settings = settings or SettingsStore.load()
+        super().__init__(self.settings)
         self.setWindowTitle(f"{APP_NAME} – {VERSION}")
         self.setFixedSize(1100, 760)
         self.theme = "light"
@@ -1162,6 +1164,6 @@ if __name__ == "__main__":
         sys.exit()
 
     app = QApplication(sys.argv)
-    win = OptimizerUI()
+    win = OptimizerUI(SettingsStore.load())
     win.show()
     sys.exit(app.exec())
