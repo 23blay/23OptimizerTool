@@ -899,9 +899,12 @@ class GalaxyBackground(QWidget):
         if self.visual_fx_enabled:
             # Draw stars
             painter.setPen(Qt.PenStyle.NoPen)
+            star_base = QColor(25, 25, 25) if light_mode else QColor(255, 255, 255)
             for star in self.stars:
                 alpha = int(255 * star['brightness'])
-                painter.setBrush(QColor(255, 255, 255, alpha))
+                star_color = QColor(star_base)
+                star_color.setAlpha(alpha)
+                painter.setBrush(star_color)
                 painter.drawEllipse(QRectF(star['x'], star['y'], star['size'], star['size']))
         
         # Draw particles
@@ -919,11 +922,16 @@ class GalaxyBackground(QWidget):
         if self.visual_fx_enabled:
             # Draw comets
             painter.setPen(Qt.PenStyle.NoPen)
+            comet_base = QColor(30, 30, 30) if light_mode else QColor(248, 113, 113)
             for comet in self.comets:
                 alpha = int(180 * comet['life'])
-                painter.setBrush(QColor(248, 113, 113, alpha))
+                head_color = QColor(comet_base)
+                head_color.setAlpha(alpha)
+                painter.setBrush(head_color)
                 painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
-                tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
+                tail_color = QColor(comet_base)
+                tail_color.setAlpha(max(40, alpha // 2))
+                tail_pen = QPen(tail_color, 2)
                 painter.setPen(tail_pen)
                 painter.drawLine(
                     int(comet['x']),
@@ -1197,7 +1205,7 @@ class OptimizerUI(GalaxyBackground):
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.settings_btn = QToolButton()
-        self.settings_btn.setText("⚙")
+        self.settings_btn.setText("✕")
         self.settings_btn.setObjectName("settings")
         self.settings_btn.setFixedSize(38, 38)
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1209,9 +1217,10 @@ class OptimizerUI(GalaxyBackground):
         self.title_label.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
         self.title_label.setStyleSheet("color: white; letter-spacing: 2px;")
 
-        self.subtitle_label = PulseLabel("Lowkey. Powerful. Safe. Universal.")
+        self.subtitle_label = QLabel("Lowkey. Powerful. Safe. Universal.")
         self.subtitle_label.setFont(QFont("Segoe UI", 12))
         self.subtitle_label.setStyleSheet("color: #e5e7eb;")
+        self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(10)
@@ -1269,10 +1278,6 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
 
-        self.ai_status = PulseLabel("AI ready: adaptive profile online", min_opacity=0.55, max_opacity=0.95)
-        self.ai_status.setFont(QFont("Segoe UI", 10))
-        self.ai_status.setStyleSheet("color: #fecaca;")
-
         self.safety_note = QLabel("Restore point enabled for safe rollback")
         self.safety_note.setFont(QFont("Segoe UI", 9))
         self.safety_note.setStyleSheet("color: #fcd34d;")
@@ -1280,35 +1285,35 @@ class OptimizerUI(GalaxyBackground):
         # Settings panel
         self.settings_panel = QFrame()
         self.settings_panel.setObjectName("settingsPanel")
-        self.settings_panel.setFixedWidth(360)
-        self.settings_panel.setVisible(False)
+        self.settings_panel.setMinimumWidth(420)
+        self.settings_panel.setMaximumWidth(520)
+        self.settings_panel.setVisible(True)
         settings_layout = QVBoxLayout(self.settings_panel)
-        settings_layout.setContentsMargins(14, 10, 14, 10)
-        settings_layout.setSpacing(10)
+        settings_layout.setContentsMargins(18, 14, 18, 14)
+        settings_layout.setSpacing(12)
 
         self.settings_title = QLabel("Settings")
         self.settings_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         settings_layout.addWidget(self.settings_title)
 
         self.visual_fx_checkbox = QCheckBox("Enable visual FX")
-        self.visual_fx_checkbox.setChecked(False)
+        self.visual_fx_checkbox.setChecked(True)
         self.visual_fx_checkbox.toggled.connect(self.set_visual_fx_enabled)
 
         self.show_completion_checkbox = QCheckBox("Show completion dialog")
         self.show_completion_checkbox.setChecked(True)
 
         self.theme_checkbox = QCheckBox("Light mode")
-        self.theme_checkbox.setChecked(False)
+        self.theme_checkbox.setChecked(True)
         self.theme_checkbox.toggled.connect(self.toggle_theme)
 
         settings_layout.addWidget(self.visual_fx_checkbox)
         settings_layout.addWidget(self.show_completion_checkbox)
         settings_layout.addWidget(self.theme_checkbox)
 
-        self.dialog_hint = PulseLabel("Completion summary pop-up is enabled", min_opacity=0.5, max_opacity=0.95)
-        self.dialog_hint.setFont(QFont("Segoe UI", 9))
-        self.dialog_hint.setStyleSheet("color: #fca5a5;")
-        self.show_completion_checkbox.toggled.connect(self.update_completion_hint)
+        self.visual_fx_checkbox.setMinimumHeight(24)
+        self.show_completion_checkbox.setMinimumHeight(24)
+        self.theme_checkbox.setMinimumHeight(24)
 
         # Layout assembly
         content_layout.addLayout(top_bar)
@@ -1322,12 +1327,11 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.settings_panel, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.dialog_hint, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        self.update_completion_hint(self.show_completion_checkbox.isChecked())
+        self.set_visual_fx_enabled(self.visual_fx_checkbox.isChecked())
+        self.toggle_theme(self.theme_checkbox.isChecked())
         self.apply_theme()
 
         layout.addStretch(1)
@@ -1373,7 +1377,8 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setText(text)
 
     def update_insight(self, text):
-        self.ai_status.setText(text)
+        # Keep interface lean; no AI banner text in UI
+        return
 
     def update_profile(self, profile):
         return
@@ -1433,14 +1438,6 @@ class OptimizerUI(GalaxyBackground):
         self.button.start_pulse()
         self.progress.setValue(0)
         self.progress.setFormat("Ready")
-
-    def update_completion_hint(self, enabled: bool):
-        if enabled:
-            self.dialog_hint.setText("Completion summary pop-up is enabled")
-            self.dialog_hint.show()
-            self._fade_widget(self.dialog_hint, 0.0, 1.0, 280)
-        else:
-            self._fade_widget(self.dialog_hint, 1.0, 0.0, 240, hide_when_done=True)
 
     def _fade_widget(self, widget, start_opacity, end_opacity, duration, hide_when_done=False):
         effect = widget.graphicsEffect()
@@ -1575,9 +1572,7 @@ class OptimizerUI(GalaxyBackground):
     def title_style_refresh(self):
         self.status.setStyleSheet(f"color: {self.theme['accent']}; letter-spacing: 0.5px;")
         self.substatus.setStyleSheet(f"color: {self.theme['subtext']};")
-        self.ai_status.setStyleSheet(f"color: {self.theme['muted']};")
         self.safety_note.setStyleSheet(f"color: {self.theme['warn']};")
-        self.dialog_hint.setStyleSheet(f"color: {self.theme['subtext']};")
 
     def handle_error(self, error_msg):
         self.status.setText("❌ Error occurred")
