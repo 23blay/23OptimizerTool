@@ -1,4 +1,5 @@
-import sys, os, ctypes, subprocess, shutil, random, time, winreg, math
+import sys, os, ctypes, subprocess, shutil, random, time, winreg, math, json
+from pathlib import Path
 from threading import Thread
 
 from PyQt6.QtCore import (
@@ -7,13 +8,79 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearGradient
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QPushButton, QLabel,
+    QApplication, QWidget, QPushButton, QLabel, QCheckBox,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame
+    QHBoxLayout, QFrame, QDialog, QDialogButtonBox
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v2.5"
+VERSION = "v2.6"
+
+
+SETTINGS_PATH = Path.home() / ".23optimizer_settings.json"
+DEFAULT_SETTINGS = {
+    "create_restore_point": True,
+    "enable_visual_fx": False,
+    "show_completion_dialog": True,
+}
+
+
+class SettingsStore:
+    @staticmethod
+    def load():
+        try:
+            if SETTINGS_PATH.exists():
+                raw = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+                merged = DEFAULT_SETTINGS.copy()
+                merged.update({k: bool(raw.get(k, v)) for k, v in DEFAULT_SETTINGS.items()})
+                return merged
+        except Exception:
+            pass
+        return DEFAULT_SETTINGS.copy()
+
+    @staticmethod
+    def save(data):
+        clean = {k: bool(data.get(k, v)) for k, v in DEFAULT_SETTINGS.items()}
+        SETTINGS_PATH.write_text(json.dumps(clean, indent=2), encoding="utf-8")
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, settings, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("User Settings")
+        self.setModal(True)
+        self.setFixedWidth(360)
+        layout = QVBoxLayout(self)
+
+        self.restore_cb = QCheckBox("Create restore point before optimize")
+        self.restore_cb.setChecked(settings["create_restore_point"])
+        self.fx_cb = QCheckBox("Enable visual FX")
+        self.fx_cb.setChecked(settings["enable_visual_fx"])
+        self.summary_cb = QCheckBox("Show completion summary dialog")
+        self.summary_cb.setChecked(settings["show_completion_dialog"])
+
+        for w in (self.restore_cb, self.fx_cb, self.summary_cb):
+            layout.addWidget(w)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+        self.setStyleSheet(
+            "QDialog { background: #080303; color: #fee2e2; }"
+            "QCheckBox { color: #fecaca; font: 10pt 'Segoe UI'; }"
+            "QPushButton { background: #dc2626; color: #f8fafc; padding: 6px 14px; border-radius: 6px; }"
+            "QPushButton:hover { background: #ef4444; }"
+        )
+
+    def get_values(self):
+        return {
+            "create_restore_point": self.restore_cb.isChecked(),
+            "enable_visual_fx": self.fx_cb.isChecked(),
+            "show_completion_dialog": self.summary_cb.isChecked(),
+        }
+
 
 # ===============================
 # ADMIN CHECK
@@ -53,10 +120,11 @@ class OptimizerWorker(QObject):
     done = pyqtSignal(dict)
     error = pyqtSignal(str)
 
-    def __init__(self):
+    def __init__(self, settings):
         super().__init__()
+        self.settings = settings
         self.safe_mode = False
-        self.create_restore_point_enabled = True
+        self.create_restore_point_enabled = settings.get("create_restore_point", True)
         self.stats = {
             'cleaned_mb': 0,
             'optimizations_applied': 0,
@@ -509,7 +577,7 @@ class PulseRing:
 # GALAXY BACKGROUND WITH NEBULA
 # ===============================
 class GalaxyBackground(QWidget):
-    def __init__(self):
+    def __init__(self, settings):
         super().__init__()
         self.stars = []
         self.particles = []
@@ -826,7 +894,7 @@ class AnimatedButton(QPushButton):
 
 
 class GlowProgressBar(QProgressBar):
-    def __init__(self):
+    def __init__(self, settings):
         super().__init__()
         self.setFixedHeight(24)
         self.setTextVisible(True)
@@ -854,7 +922,7 @@ class GlowProgressBar(QProgressBar):
 # MAIN WINDOW
 # ===============================
 class OptimizerUI(GalaxyBackground):
-    def __init__(self):
+    def __init__(self, settings):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} – {VERSION}")
         self.setFixedSize(1100, 760)
@@ -887,6 +955,10 @@ class OptimizerUI(GalaxyBackground):
 
         self.subtitle_label = PulseLabel("Full system optimization in one click")
         self.subtitle_label.setFont(QFont("Segoe UI", 12))
+
+        self.settings_button = QPushButton("SETTINGS")
+        self.settings_button.clicked.connect(self.open_settings)
+        self.settings_button.setFixedWidth(120)
 
         self.header_line = QFrame()
         self.header_line.setFixedHeight(2)
@@ -921,6 +993,7 @@ class OptimizerUI(GalaxyBackground):
 
         content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.settings_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
@@ -939,11 +1012,12 @@ class OptimizerUI(GalaxyBackground):
         self.button.stop_pulse()
         self.button.setEnabled(False)
         self.button.set_busy(True)
+        self.enable_fx = self.settings.get("enable_visual_fx", False)
         self.progress.setValue(0)
         self.progress.setFormat("Optimizing... %p%")
 
 
-        self.worker = OptimizerWorker()
+        self.worker = OptimizerWorker(self.settings)
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
@@ -968,6 +1042,8 @@ class OptimizerUI(GalaxyBackground):
 
         self.status.setStyleSheet(f"color: {palette['accent']}; letter-spacing: 0.4px;")
         self.substatus.setStyleSheet(f"color: {palette['text_secondary']};")
+
+        self.settings_button.setStyleSheet(f"background: {palette['card_bg']}; color: {palette['text_primary']}; border: 1px solid {palette['card_border']}; border-radius: 10px; padding: 8px 14px;")
 
         self.button.set_palette({
             "bg_start": palette["accent"],
@@ -1000,6 +1076,13 @@ class OptimizerUI(GalaxyBackground):
             "chunk_end": "#fca5a5" if theme == "light" else "#f87171",
         })
 
+    def open_settings(self):
+        dialog = SettingsDialog(self.settings, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.settings = dialog.get_values()
+            SettingsStore.save(self.settings)
+            self.enable_fx = self.settings.get("enable_visual_fx", False)
+
     def update_progress(self, value):
         self.progress.setValue(value)
 
@@ -1021,31 +1104,32 @@ class OptimizerUI(GalaxyBackground):
         self.progress.setValue(100)
         self.progress.setFormat("Complete")
 
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Optimization Complete")
-        msg.setText(
-            f"✅ System optimization completed!\n\n"
-            f"📊 Statistics:\n"
-            f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
-            f"• Optimizations: {stats['optimizations_applied']}\n"
-            f"• Duration: {stats['duration']:.1f}s\n"
-            f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
-            f"• Errors: {stats['errors']}\n"
-            f"• Skipped: {stats['skipped']}"
-        )
-        msg.setIcon(QMessageBox.Icon.Information)
+        if self.settings.get("show_completion_dialog", True):
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Optimization Complete")
+            msg.setText(
+                f"✅ System optimization completed!\n\n"
+                f"📊 Statistics:\n"
+                f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
+                f"• Optimizations: {stats['optimizations_applied']}\n"
+                f"• Duration: {stats['duration']:.1f}s\n"
+                f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
+                f"• Errors: {stats['errors']}\n"
+                f"• Skipped: {stats['skipped']}"
+            )
+            msg.setIcon(QMessageBox.Icon.Information)
 
-        palette = self.theme_palette[self.theme]
-        msg.setStyleSheet(f"""
-            QMessageBox {{ background: {palette['dialog_bg']}; }}
-            QMessageBox QLabel {{ color: {palette['dialog_text']}; font-family: 'Segoe UI'; }}
-            QPushButton {{
-                background: {palette['accent']}; color: #f8fafc; padding: 8px 20px;
-                border-radius: 6px; font-weight: 600;
-            }}
-            QPushButton:hover {{ background: {palette['accent_soft']}; }}
-        """)
-        msg.exec()
+            palette = self.theme_palette[self.theme]
+            msg.setStyleSheet(f"""
+                QMessageBox {{ background: {palette['dialog_bg']}; }}
+                QMessageBox QLabel {{ color: {palette['dialog_text']}; font-family: 'Segoe UI'; }}
+                QPushButton {{
+                    background: {palette['accent']}; color: #f8fafc; padding: 8px 20px;
+                    border-radius: 6px; font-weight: 600;
+                }}
+                QPushButton:hover {{ background: {palette['accent_soft']}; }}
+            """)
+            msg.exec()
 
         self.button.setEnabled(True)
         self.button.set_busy(False)
