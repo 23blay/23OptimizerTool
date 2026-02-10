@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearG
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame, QCheckBox
+    QHBoxLayout, QFrame, QCheckBox, QToolButton
 )
 
 
@@ -189,6 +189,8 @@ class OptimizerWorker(QObject):
             (self.flush_dns, "Flushing DNS cache", True),
             (self.optimize_dns, "Optimizing DNS settings", True),
             (self.reset_network, "Resetting network stack", True),
+            (self.optimize_adapter_power_saving, "Optimizing network adapter power settings", True),
+            (self.preserve_core_connectivity_services, "Preserving Wi-Fi/Bluetooth/Update services", True),
             
             # Disk - Safe (HDD/SSD aware)
             (self.optimize_disk, "Optimizing storage", True),
@@ -202,6 +204,7 @@ class OptimizerWorker(QObject):
             (self.reduce_menu_delay, "Reducing menu delays", True),
             (self.optimize_notifications, "Reducing Windows suggestions", True),
             (self.enable_storage_sense, "Enabling Storage Sense", True),
+            (self.optimize_background_apps, "Reducing background app load", True),
             
             # Services - Safe
             (self.disable_telemetry, "Disabling telemetry", True),
@@ -250,14 +253,20 @@ class OptimizerWorker(QObject):
         except:
             info["gpu"] = "unknown"
         
-        # Disk type detection (SSD vs HDD)
+        # Disk type detection (SSD vs HDD + presence)
+        info["has_disk"] = False
+        info["ssd"] = False
+        info["hdd"] = False
         try:
             drive_out = subprocess.run(
                 "wmic diskdrive get MediaType",
                 shell=True, capture_output=True, text=True, timeout=5
             ).stdout.lower()
-            
+
+            media_lines = [line.strip() for line in drive_out.splitlines() if line.strip() and "mediatype" not in line]
+            info["has_disk"] = len(media_lines) > 0
             info["ssd"] = "ssd" in drive_out or "solid state" in drive_out
+            info["hdd"] = "hard disk" in drive_out or "hdd" in drive_out or "fixed hard disk" in drive_out
         except:
             # Fallback: check if TRIM is enabled (SSD indicator)
             try:
@@ -266,10 +275,23 @@ class OptimizerWorker(QObject):
                     shell=True, capture_output=True, text=True, timeout=5
                 ).stdout
                 info["ssd"] = "0" in trim_out
+                info["has_disk"] = True
             except:
                 info["ssd"] = False
-        
-        self.substatus.emit(f"{info['cores']} cores | {info['ram']}GB RAM | {info['gpu'].upper()} GPU | {'SSD' if info['ssd'] else 'HDD'}")
+
+        if info["has_disk"] and not info["ssd"]:
+            info["hdd"] = True
+
+        if not info["has_disk"]:
+            disk_label = "No Disk Detected"
+        elif info["ssd"]:
+            disk_label = "SSD"
+        elif info["hdd"]:
+            disk_label = "HDD"
+        else:
+            disk_label = "Disk"
+
+        self.substatus.emit(f"{info['cores']} cores | {info['ram']}GB RAM | {info['gpu'].upper()} GPU | {disk_label}")
         return info
 
     def get_disk_free_gb(self, drive="C:\\"):
@@ -488,11 +510,40 @@ class OptimizerWorker(QObject):
             subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, 
                          stderr=subprocess.DEVNULL, timeout=5)
 
+    def optimize_adapter_power_saving(self):
+        self.substatus.emit("Optimizing network adapter power behavior")
+        cmds = [
+            'powercfg -setacvalueindex scheme_current sub_none CONNSTATUS 1',
+            'powercfg -setdcvalueindex scheme_current sub_none CONNSTATUS 1'
+        ]
+        for cmd in cmds:
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, timeout=5)
+
+    def preserve_core_connectivity_services(self):
+        self.substatus.emit("Ensuring Wi-Fi/Bluetooth/Update services remain enabled")
+        safe_enable = {
+            "wuauserv": "demand",
+            "bits": "demand",
+            "dosvc": "demand",
+            "WlanSvc": "auto",
+            "bthserv": "demand"
+        }
+        for svc, mode in safe_enable.items():
+            subprocess.run(
+                f"sc config {svc} start={mode}",
+                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
+            )
+
     # ===============================
     # DISK OPTIMIZATIONS (SSD/HDD Aware)
     # ===============================
     def optimize_disk(self):
-        if self.sys["ssd"]:
+        if not self.sys.get("has_disk", True):
+            self.substatus.emit("No storage device detected - skipping storage optimization")
+            return
+
+        if self.sys.get("ssd"):
             self.substatus.emit("Optimizing SSD (TRIM enabled)")
             # Enable TRIM
             subprocess.run(
@@ -504,13 +555,15 @@ class OptimizerWorker(QObject):
                 "defrag C: /L /O",
                 shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
             )
-        else:
+        elif self.sys.get("hdd"):
             self.substatus.emit("Optimizing HDD (defragmentation)")
             # Quick defrag for HDD
             subprocess.run(
                 "defrag C: /U /V",
                 shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60
             )
+        else:
+            self.substatus.emit("Storage type unknown - skipping defrag/TRIM for safety")
 
     def disable_last_access(self):
         self.substatus.emit("Disabling last access time tracking")
@@ -575,6 +628,14 @@ class OptimizerWorker(QObject):
         for cmd in cmds:
             subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, timeout=5)
+
+    def optimize_background_apps(self):
+        self.substatus.emit("Reducing background app activity")
+        subprocess.run(
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" '
+            r'/v GlobalUserDisabled /t REG_DWORD /d 1 /f',
+            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
+        )
 
     def enable_storage_sense(self):
         self.substatus.emit("Enabling Storage Sense automation")
@@ -912,22 +973,27 @@ class StatCard(QFrame):
         self.value_label.setStyleSheet("color: #ef4444; border: none;")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        unit_label = QLabel(unit)
-        unit_label.setFont(QFont("Segoe UI", 10))
-        unit_label.setStyleSheet("color: #fca5a5; border: none;")
-        unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.unit_label = QLabel(unit)
+        self.unit_label.setFont(QFont("Segoe UI", 10))
+        self.unit_label.setStyleSheet("color: #fca5a5; border: none;")
+        self.unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 9))
-        title_label.setStyleSheet("color: #fecaca; border: none;")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label = QLabel(title)
+        self.title_label.setFont(QFont("Segoe UI", 9))
+        self.title_label.setStyleSheet("color: #fecaca; border: none;")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         layout.addWidget(self.value_label)
-        layout.addWidget(unit_label)
-        layout.addWidget(title_label)
+        layout.addWidget(self.unit_label)
+        layout.addWidget(self.title_label)
     
     def set_value(self, value):
         self.value_label.setText(str(value))
+
+    def apply_theme(self, theme):
+        self.value_label.setStyleSheet(f"color: {theme['accent']}; border: none;")
+        self.unit_label.setStyleSheet(f"color: {theme['subtext']}; border: none;")
+        self.title_label.setStyleSheet(f"color: {theme['muted']}; border: none;")
 
 # ===============================
 # PULSE LABEL
@@ -953,6 +1019,7 @@ class AnimatedButton(QPushButton):
         super().__init__(text, parent)
         self._glow_intensity = 0
         self._base_text = text
+        self._theme = DARK_THEME
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Opacity effect
@@ -1008,12 +1075,16 @@ class AnimatedButton(QPushButton):
         self.update_style()
     
     def update_style(self):
-        glow = self._glow_intensity
+        accent = self._theme["accent"]
+        hover = "#fb7185" if self._theme == LIGHT_THEME else "#f87171"
+        disabled_bg = "#cbd5e1" if self._theme == LIGHT_THEME else "#7f1d1d"
+        disabled_fg = "#334155" if self._theme == LIGHT_THEME else "#fca5a5"
+        border_col = "#94a3b8" if self._theme == LIGHT_THEME else "#991b1b"
         self.setStyleSheet(
             f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #ef4444, stop:1 #dc2626);
+                    stop:0 {accent}, stop:1 #b91c1c);
                 color: white;
                 font-size: 18px;
                 font-weight: bold;
@@ -1024,19 +1095,23 @@ class AnimatedButton(QPushButton):
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #f87171, stop:1 #ef4444);
+                    stop:0 {hover}, stop:1 {accent});
             }}
             QPushButton:pressed {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #dc2626, stop:1 #b91c1c);
             }}
             QPushButton:disabled {{
-                background: #7f1d1d;
-                color: #fca5a5;
-                border: 2px solid #991b1b;
+                background: {disabled_bg};
+                color: {disabled_fg};
+                border: 2px solid {border_col};
             }}
             """
         )
+
+    def apply_theme(self, theme):
+        self._theme = theme
+        self.update_style()
     
     def enterEvent(self, event):
         self.glow_anim.setDirection(QPropertyAnimation.Direction.Forward)
@@ -1121,7 +1196,8 @@ class OptimizerUI(GalaxyBackground):
 
         top_bar = QHBoxLayout()
         top_bar.addStretch()
-        self.settings_btn = QPushButton("⚙")
+        self.settings_btn = QToolButton()
+        self.settings_btn.setText("⚙")
         self.settings_btn.setObjectName("settings")
         self.settings_btn.setFixedSize(38, 38)
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1129,17 +1205,18 @@ class OptimizerUI(GalaxyBackground):
         top_bar.addWidget(self.settings_btn)
 
         # Header
-        title = QLabel(APP_NAME)
-        title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
-        title.setStyleSheet("color: white; letter-spacing: 2px;")
+        self.title_label = QLabel(APP_NAME)
+        self.title_label.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: white; letter-spacing: 2px;")
 
-        subtitle = PulseLabel("Lowkey. Powerful. Safe. Universal.")
-        subtitle.setFont(QFont("Segoe UI", 12))
-        subtitle.setStyleSheet("color: #e5e7eb;")
+        self.subtitle_label = PulseLabel("Lowkey. Powerful. Safe. Universal.")
+        self.subtitle_label.setFont(QFont("Segoe UI", 12))
+        self.subtitle_label.setStyleSheet("color: #e5e7eb;")
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(10)
         badges_layout.addStretch()
+        self.badges = []
         for badge_text in ("One-Click", "Windows 10/11", "Safe Optimizations", "Performance"):
             badge = QLabel(badge_text)
             badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
@@ -1148,11 +1225,12 @@ class OptimizerUI(GalaxyBackground):
                 "padding: 4px 10px; border-radius: 10px; border: 1px solid #7f1d1d;"
             )
             badges_layout.addWidget(badge)
+            self.badges.append(badge)
         badges_layout.addStretch()
 
-        header_line = QFrame()
-        header_line.setFixedHeight(2)
-        header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
+        self.header_line = QFrame()
+        self.header_line.setFixedHeight(2)
+        self.header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
 
         # Stats cards
         stats_layout = QHBoxLayout()
@@ -1226,10 +1304,10 @@ class OptimizerUI(GalaxyBackground):
 
         # Layout assembly
         content_layout.addLayout(top_bar)
-        content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addLayout(badges_layout)
-        content_layout.addWidget(header_line)
+        content_layout.addWidget(self.header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
         content_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -1394,13 +1472,15 @@ class OptimizerUI(GalaxyBackground):
     def apply_theme(self):
         is_light = self.theme == LIGHT_THEME
         accent = self.theme["accent"]
+        bg = "rgba(248, 250, 252, 0.80)" if is_light else "rgba(2, 6, 23, 0.78)"
+        panel_border = "#cbd5e1" if is_light else "#334155"
         self.setStyleSheet(
             f"""
             QWidget {{ background: transparent; color: {self.theme['text']}; }}
-            QFrame {{ background: {self.theme['panel']}; border-radius: 10px; }}
+            QFrame {{ background: {self.theme['panel']}; border-radius: 10px; border: 1px solid {panel_border}; }}
             QCheckBox {{ color: {self.theme['muted']}; font: 10pt 'Segoe UI'; }}
             QCheckBox::indicator {{ width: 16px; height: 16px; }}
-            QPushButton#settings {{
+            QToolButton#settings {{
                 background: {'#e5e7eb' if is_light else '#111827'};
                 color: {accent};
                 border: 1px solid {accent};
@@ -1408,9 +1488,44 @@ class OptimizerUI(GalaxyBackground):
                 font-size: 16px;
                 font-weight: bold;
             }}
-            QPushButton#settings:hover {{ background: {'#d1d5db' if is_light else '#1f2937'}; }}
+            QToolButton#settings:hover {{ background: {'#d1d5db' if is_light else '#1f2937'}; }}
             """
         )
+
+        self.title_label.setStyleSheet(f"color: {self.theme['text']}; letter-spacing: 2px;")
+        self.subtitle_label.setStyleSheet(f"color: {self.theme['subtext']};")
+        self.header_line.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 {accent}, stop:1 rgba(239,68,68,0)); border-radius: 1px;"
+        )
+        badge_bg = "rgba(241, 245, 249, 0.95)" if is_light else "rgba(127, 29, 29, 0.55)"
+        badge_border = "#cbd5e1" if is_light else "#7f1d1d"
+        for badge in self.badges:
+            badge.setStyleSheet(
+                f"color: {self.theme['muted']}; background: {badge_bg};"
+                f"padding: 4px 10px; border-radius: 10px; border: 1px solid {badge_border};"
+            )
+
+        self.progress.setStyleSheet(
+            f"""
+            QProgressBar {{
+                background: {bg};
+                border-radius: 12px;
+                color: {self.theme['text']};
+                font-weight: bold;
+                font-family: 'Segoe UI';
+                text-align: center;
+                border: 1px solid {panel_border};
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {accent}, stop:1 {'#fb7185' if is_light else '#f87171'});
+                border-radius: 10px;
+            }}
+            """
+        )
+        self.button.apply_theme(self.theme)
+        self.cleaned_card.apply_theme(self.theme)
+        self.optimized_card.apply_theme(self.theme)
 
         self.title_style_refresh()
 
