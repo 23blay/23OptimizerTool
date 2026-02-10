@@ -5,14 +5,35 @@ from datetime import datetime
 from PyQt6.QtCore import (
     Qt, QTimer, QRectF, pyqtSignal, QObject,
     QPropertyAnimation, QEasingCurve, pyqtProperty, QSequentialAnimationGroup,
-    QParallelAnimationGroup, QPointF
+    QParallelAnimationGroup, QPointF, QSize
 )
 from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearGradient
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame
+    QHBoxLayout, QFrame, QCheckBox, QToolButton, QStyle
 )
+
+
+DARK_THEME = {
+    "window": "#060606",
+    "panel": "rgba(25, 25, 25, 0.92)",
+    "text": "#f3f4f6",
+    "subtext": "#fca5a5",
+    "muted": "#fecaca",
+    "accent": "#ef4444",
+    "warn": "#fcd34d"
+}
+
+LIGHT_THEME = {
+    "window": "#f5f6f8",
+    "panel": "rgba(255, 255, 255, 0.95)",
+    "text": "#111827",
+    "subtext": "#374151",
+    "muted": "#4b5563",
+    "accent": "#dc2626",
+    "warn": "#92400e"
+}
 
 APP_NAME = "23 Optimizer"
 VERSION = "v1.6"
@@ -168,6 +189,8 @@ class OptimizerWorker(QObject):
             (self.flush_dns, "Flushing DNS cache", True),
             (self.optimize_dns, "Optimizing DNS settings", True),
             (self.reset_network, "Resetting network stack", True),
+            (self.optimize_adapter_power_saving, "Optimizing network adapter power settings", True),
+            (self.preserve_core_connectivity_services, "Preserving Wi-Fi/Bluetooth/Update services", True),
             
             # Disk - Safe (HDD/SSD aware)
             (self.optimize_disk, "Optimizing storage", True),
@@ -181,6 +204,7 @@ class OptimizerWorker(QObject):
             (self.reduce_menu_delay, "Reducing menu delays", True),
             (self.optimize_notifications, "Reducing Windows suggestions", True),
             (self.enable_storage_sense, "Enabling Storage Sense", True),
+            (self.optimize_background_apps, "Reducing background app load", True),
             
             # Services - Safe
             (self.disable_telemetry, "Disabling telemetry", True),
@@ -229,14 +253,20 @@ class OptimizerWorker(QObject):
         except:
             info["gpu"] = "unknown"
         
-        # Disk type detection (SSD vs HDD)
+        # Disk type detection (SSD vs HDD + presence)
+        info["has_disk"] = False
+        info["ssd"] = False
+        info["hdd"] = False
         try:
             drive_out = subprocess.run(
                 "wmic diskdrive get MediaType",
                 shell=True, capture_output=True, text=True, timeout=5
             ).stdout.lower()
-            
+
+            media_lines = [line.strip() for line in drive_out.splitlines() if line.strip() and "mediatype" not in line]
+            info["has_disk"] = len(media_lines) > 0
             info["ssd"] = "ssd" in drive_out or "solid state" in drive_out
+            info["hdd"] = "hard disk" in drive_out or "hdd" in drive_out or "fixed hard disk" in drive_out
         except:
             # Fallback: check if TRIM is enabled (SSD indicator)
             try:
@@ -245,10 +275,23 @@ class OptimizerWorker(QObject):
                     shell=True, capture_output=True, text=True, timeout=5
                 ).stdout
                 info["ssd"] = "0" in trim_out
+                info["has_disk"] = True
             except:
                 info["ssd"] = False
-        
-        self.substatus.emit(f"{info['cores']} cores | {info['ram']}GB RAM | {info['gpu'].upper()} GPU | {'SSD' if info['ssd'] else 'HDD'}")
+
+        if info["has_disk"] and not info["ssd"]:
+            info["hdd"] = True
+
+        if not info["has_disk"]:
+            disk_label = "No Disk Detected"
+        elif info["ssd"]:
+            disk_label = "SSD"
+        elif info["hdd"]:
+            disk_label = "HDD"
+        else:
+            disk_label = "Disk"
+
+        self.substatus.emit(f"{info['cores']} cores | {info['ram']}GB RAM | {info['gpu'].upper()} GPU | {disk_label}")
         return info
 
     def get_disk_free_gb(self, drive="C:\\"):
@@ -467,11 +510,40 @@ class OptimizerWorker(QObject):
             subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, 
                          stderr=subprocess.DEVNULL, timeout=5)
 
+    def optimize_adapter_power_saving(self):
+        self.substatus.emit("Optimizing network adapter power behavior")
+        cmds = [
+            'powercfg -setacvalueindex scheme_current sub_none CONNSTATUS 1',
+            'powercfg -setdcvalueindex scheme_current sub_none CONNSTATUS 1'
+        ]
+        for cmd in cmds:
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, timeout=5)
+
+    def preserve_core_connectivity_services(self):
+        self.substatus.emit("Ensuring Wi-Fi/Bluetooth/Update services remain enabled")
+        safe_enable = {
+            "wuauserv": "demand",
+            "bits": "demand",
+            "dosvc": "demand",
+            "WlanSvc": "auto",
+            "bthserv": "demand"
+        }
+        for svc, mode in safe_enable.items():
+            subprocess.run(
+                f"sc config {svc} start={mode}",
+                shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
+            )
+
     # ===============================
     # DISK OPTIMIZATIONS (SSD/HDD Aware)
     # ===============================
     def optimize_disk(self):
-        if self.sys["ssd"]:
+        if not self.sys.get("has_disk", True):
+            self.substatus.emit("No storage device detected - skipping storage optimization")
+            return
+
+        if self.sys.get("ssd"):
             self.substatus.emit("Optimizing SSD (TRIM enabled)")
             # Enable TRIM
             subprocess.run(
@@ -483,13 +555,15 @@ class OptimizerWorker(QObject):
                 "defrag C: /L /O",
                 shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=30
             )
-        else:
+        elif self.sys.get("hdd"):
             self.substatus.emit("Optimizing HDD (defragmentation)")
             # Quick defrag for HDD
             subprocess.run(
                 "defrag C: /U /V",
                 shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=60
             )
+        else:
+            self.substatus.emit("Storage type unknown - skipping defrag/TRIM for safety")
 
     def disable_last_access(self):
         self.substatus.emit("Disabling last access time tracking")
@@ -554,6 +628,14 @@ class OptimizerWorker(QObject):
         for cmd in cmds:
             subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL, timeout=5)
+
+    def optimize_background_apps(self):
+        self.substatus.emit("Reducing background app activity")
+        subprocess.run(
+            r'reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\BackgroundAccessApplications" '
+            r'/v GlobalUserDisabled /t REG_DWORD /d 1 /f',
+            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
+        )
 
     def enable_storage_sense(self):
         self.substatus.emit("Enabling Storage Sense automation")
@@ -689,6 +771,7 @@ class GalaxyBackground(QWidget):
         self.pulse_rings = []
         self.nebula_offset = 0
         self.scan_phase = 0
+        self.visual_fx_enabled = False
         
         # Create star field with twinkle
         for _ in range(200):
@@ -735,17 +818,18 @@ class GalaxyBackground(QWidget):
             })
 
     def animate(self):
-        # Animate stars with twinkle
-        for star in self.stars:
-            star['y'] += star['speed']
-            if star['y'] > self.height():
-                star['x'] = random.randint(0, self.width())
-                star['y'] = 0
-                star['brightness'] = random.uniform(0.3, 1.0)
-            
-            # Twinkle effect
-            star['twinkle_phase'] += star['twinkle_speed']
-            star['brightness'] = 0.4 + 0.6 * abs(math.sin(star['twinkle_phase']))
+        if self.visual_fx_enabled:
+            # Animate stars with twinkle
+            for star in self.stars:
+                star['y'] += star['speed']
+                if star['y'] > self.height():
+                    star['x'] = random.randint(0, self.width())
+                    star['y'] = 0
+                    star['brightness'] = random.uniform(0.3, 1.0)
+
+                # Twinkle effect
+                star['twinkle_phase'] += star['twinkle_speed']
+                star['brightness'] = 0.4 + 0.6 * abs(math.sin(star['twinkle_phase']))
         
         # Animate particles
         for particle in self.particles[:]:
@@ -775,7 +859,10 @@ class GalaxyBackground(QWidget):
             self.nebula_offset = 0
 
         self.scan_phase = (self.scan_phase + 1) % 360
-        self.spawn_comet()
+        if self.visual_fx_enabled:
+            self.spawn_comet()
+        else:
+            self.comets.clear()
 
         self.update()
 
@@ -783,12 +870,19 @@ class GalaxyBackground(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Pure black background
+        light_mode = getattr(self, "theme", DARK_THEME) == LIGHT_THEME
+
+        # Background
         bg = QRadialGradient(self.width()/2, self.height()/2,
                             max(self.width(), self.height()))
-        bg.setColorAt(0, QColor(10, 10, 10))
-        bg.setColorAt(0.5, QColor(5, 5, 5))
-        bg.setColorAt(1, QColor(0, 0, 0))
+        if light_mode:
+            bg.setColorAt(0, QColor(248, 250, 252))
+            bg.setColorAt(0.5, QColor(241, 245, 249))
+            bg.setColorAt(1, QColor(226, 232, 240))
+        else:
+            bg.setColorAt(0, QColor(10, 10, 10))
+            bg.setColorAt(0.5, QColor(5, 5, 5))
+            bg.setColorAt(1, QColor(0, 0, 0))
         painter.fillRect(self.rect(), bg)
 
         # Red nebula effect
@@ -797,17 +891,19 @@ class GalaxyBackground(QWidget):
             self.height()/2 + 50 * random.uniform(-1, 1),
             400
         )
-        nebula.setColorAt(0, QColor(220, 38, 38, 35))
-        nebula.setColorAt(0.5, QColor(185, 28, 28, 20))
+        nebula.setColorAt(0, QColor(220, 38, 38, 20 if light_mode else 35))
+        nebula.setColorAt(0.5, QColor(185, 28, 28, 12 if light_mode else 20))
         nebula.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), nebula)
 
-        # Draw stars
-        painter.setPen(Qt.PenStyle.NoPen)
-        for star in self.stars:
-            alpha = int(255 * star['brightness'])
-            painter.setBrush(QColor(255, 255, 255, alpha))
-            painter.drawEllipse(QRectF(star['x'], star['y'], star['size'], star['size']))
+        if self.visual_fx_enabled:
+            # Draw stars
+            painter.setPen(Qt.PenStyle.NoPen)
+            star_rgb = 20 if light_mode else 255
+            for star in self.stars:
+                alpha = int(255 * star['brightness'])
+                painter.setBrush(QColor(star_rgb, star_rgb, star_rgb, alpha))
+                painter.drawEllipse(QRectF(star['x'], star['y'], star['size'], star['size']))
         
         # Draw particles
         for particle in self.particles:
@@ -821,20 +917,22 @@ class GalaxyBackground(QWidget):
                 particle.size, particle.size
             ))
 
-        # Draw comets
-        painter.setPen(Qt.PenStyle.NoPen)
-        for comet in self.comets:
-            alpha = int(180 * comet['life'])
-            painter.setBrush(QColor(248, 113, 113, alpha))
-            painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
-            tail_pen = QPen(QColor(248, 113, 113, max(40, alpha // 2)), 2)
-            painter.setPen(tail_pen)
-            painter.drawLine(
-                int(comet['x']),
-                int(comet['y']),
-                int(comet['x'] - comet['vx'] * 6),
-                int(comet['y'] - comet['vy'] * 6)
-            )
+        if self.visual_fx_enabled:
+            # Draw comets
+            painter.setPen(Qt.PenStyle.NoPen)
+            comet_rgb = 25 if light_mode else 248
+            for comet in self.comets:
+                alpha = int(180 * comet['life'])
+                painter.setBrush(QColor(comet_rgb, comet_rgb, comet_rgb, alpha))
+                painter.drawEllipse(QRectF(comet['x'], comet['y'], 3, 3))
+                tail_pen = QPen(QColor(comet_rgb, comet_rgb, comet_rgb, max(40, alpha // 2)), 2)
+                painter.setPen(tail_pen)
+                painter.drawLine(
+                    int(comet['x']),
+                    int(comet['y']),
+                    int(comet['x'] - comet['vx'] * 6),
+                    int(comet['y'] - comet['vy'] * 6)
+                )
 
         # Draw pulse rings
         painter.setPen(Qt.PenStyle.NoPen)
@@ -852,6 +950,12 @@ class GalaxyBackground(QWidget):
         glow.setColorAt(0.7, QColor(239, 68, 68, 12))
         glow.setColorAt(1, QColor(0, 0, 0, 0))
         painter.fillRect(self.rect(), glow)
+
+    def set_visual_fx_enabled(self, enabled: bool):
+        self.visual_fx_enabled = enabled
+        if not enabled:
+            self.comets.clear()
+        self.update()
 
 # ===============================
 # STAT CARD WIDGET
@@ -871,22 +975,27 @@ class StatCard(QFrame):
         self.value_label.setStyleSheet("color: #ef4444; border: none;")
         self.value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        unit_label = QLabel(unit)
-        unit_label.setFont(QFont("Segoe UI", 10))
-        unit_label.setStyleSheet("color: #fca5a5; border: none;")
-        unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.unit_label = QLabel(unit)
+        self.unit_label.setFont(QFont("Segoe UI", 10))
+        self.unit_label.setStyleSheet("color: #fca5a5; border: none;")
+        self.unit_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 9))
-        title_label.setStyleSheet("color: #fecaca; border: none;")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.title_label = QLabel(title)
+        self.title_label.setFont(QFont("Segoe UI", 9))
+        self.title_label.setStyleSheet("color: #fecaca; border: none;")
+        self.title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         layout.addWidget(self.value_label)
-        layout.addWidget(unit_label)
-        layout.addWidget(title_label)
+        layout.addWidget(self.unit_label)
+        layout.addWidget(self.title_label)
     
     def set_value(self, value):
         self.value_label.setText(str(value))
+
+    def apply_theme(self, theme):
+        self.value_label.setStyleSheet(f"color: {theme['accent']}; border: none;")
+        self.unit_label.setStyleSheet(f"color: {theme['subtext']}; border: none;")
+        self.title_label.setStyleSheet(f"color: {theme['muted']}; border: none;")
 
 # ===============================
 # PULSE LABEL
@@ -912,6 +1021,7 @@ class AnimatedButton(QPushButton):
         super().__init__(text, parent)
         self._glow_intensity = 0
         self._base_text = text
+        self._theme = DARK_THEME
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         
         # Opacity effect
@@ -942,6 +1052,7 @@ class AnimatedButton(QPushButton):
         self.glow_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
         
         self.update_style()
+        self._click_anim = None
     
     def start_pulse(self):
         self.pulse_anim.start()
@@ -966,12 +1077,16 @@ class AnimatedButton(QPushButton):
         self.update_style()
     
     def update_style(self):
-        glow = self._glow_intensity
+        accent = self._theme["accent"]
+        hover = "#fb7185" if self._theme == LIGHT_THEME else "#f87171"
+        disabled_bg = "#cbd5e1" if self._theme == LIGHT_THEME else "#7f1d1d"
+        disabled_fg = "#334155" if self._theme == LIGHT_THEME else "#fca5a5"
+        border_col = "#94a3b8" if self._theme == LIGHT_THEME else "#991b1b"
         self.setStyleSheet(
             f"""
             QPushButton {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #ef4444, stop:1 #dc2626);
+                    stop:0 {accent}, stop:1 #b91c1c);
                 color: white;
                 font-size: 18px;
                 font-weight: bold;
@@ -982,19 +1097,23 @@ class AnimatedButton(QPushButton):
             }}
             QPushButton:hover {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #f87171, stop:1 #ef4444);
+                    stop:0 {hover}, stop:1 {accent});
             }}
             QPushButton:pressed {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #dc2626, stop:1 #b91c1c);
             }}
             QPushButton:disabled {{
-                background: #7f1d1d;
-                color: #fca5a5;
-                border: 2px solid #991b1b;
+                background: {disabled_bg};
+                color: {disabled_fg};
+                border: 2px solid {border_col};
             }}
             """
         )
+
+    def apply_theme(self, theme):
+        self._theme = theme
+        self.update_style()
     
     def enterEvent(self, event):
         self.glow_anim.setDirection(QPropertyAnimation.Direction.Forward)
@@ -1005,6 +1124,34 @@ class AnimatedButton(QPushButton):
         self.glow_anim.setDirection(QPropertyAnimation.Direction.Backward)
         self.glow_anim.start()
         super().leaveEvent(event)
+
+    def mousePressEvent(self, event):
+        self.animate_click_press()
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.animate_click_release()
+        super().mouseReleaseEvent(event)
+
+    def animate_click_press(self):
+        self._animate_button_size(0.97, 120)
+
+    def animate_click_release(self):
+        self._animate_button_size(1.0, 160)
+
+    def _animate_button_size(self, scale, duration):
+        current_geo = self.geometry()
+        target_w = int(current_geo.width() * scale)
+        target_h = int(current_geo.height() * scale)
+        target_x = current_geo.x() + (current_geo.width() - target_w) // 2
+        target_y = current_geo.y() + (current_geo.height() - target_h) // 2
+
+        self._click_anim = QPropertyAnimation(self, b"geometry")
+        self._click_anim.setDuration(duration)
+        self._click_anim.setStartValue(current_geo)
+        self._click_anim.setEndValue(QRectF(target_x, target_y, target_w, target_h).toRect())
+        self._click_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._click_anim.start()
 
 # ===============================
 # ENHANCED PROGRESS BAR
@@ -1037,6 +1184,7 @@ class GlowProgressBar(QProgressBar):
 class OptimizerUI(GalaxyBackground):
     def __init__(self):
         super().__init__()
+        self.theme = DARK_THEME
         self.setWindowTitle(f"{APP_NAME} – {VERSION}")
         self.setFixedSize(1100, 760)
 
@@ -1048,18 +1196,31 @@ class OptimizerUI(GalaxyBackground):
         content_layout.setSpacing(18)
         content_layout.setContentsMargins(10, 0, 10, 0)
 
-        # Header
-        title = QLabel(APP_NAME)
-        title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
-        title.setStyleSheet("color: white; letter-spacing: 2px;")
+        top_bar = QHBoxLayout()
+        top_bar.addStretch()
+        self.settings_btn = QToolButton()
+        self._settings_open = False
+        self.settings_btn.setObjectName("settings")
+        self.settings_btn.setFixedSize(38, 38)
+        self.settings_btn.setIconSize(QSize(18, 18))
+        self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_btn.clicked.connect(self.toggle_settings_panel)
+        top_bar.addWidget(self.settings_btn)
 
-        subtitle = PulseLabel("One-click system optimization")
-        subtitle.setFont(QFont("Segoe UI", 12))
-        subtitle.setStyleSheet("color: #e5e7eb;")
+        # Header
+        self.title_label = QLabel(APP_NAME)
+        self.title_label.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
+        self.title_label.setStyleSheet("color: white; letter-spacing: 2px;")
+
+        self.subtitle_label = QLabel("Lowkey. Powerful. Safe. Universal.")
+        self.subtitle_label.setFont(QFont("Segoe UI", 12))
+        self.subtitle_label.setStyleSheet("color: #e5e7eb;")
+        self.subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         badges_layout = QHBoxLayout()
         badges_layout.setSpacing(10)
         badges_layout.addStretch()
+        self.badges = []
         for badge_text in ("One-Click", "Windows 10/11", "Safe Optimizations", "Performance"):
             badge = QLabel(badge_text)
             badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
@@ -1068,11 +1229,12 @@ class OptimizerUI(GalaxyBackground):
                 "padding: 4px 10px; border-radius: 10px; border: 1px solid #7f1d1d;"
             )
             badges_layout.addWidget(badge)
+            self.badges.append(badge)
         badges_layout.addStretch()
 
-        header_line = QFrame()
-        header_line.setFixedHeight(2)
-        header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
+        self.header_line = QFrame()
+        self.header_line.setFixedHeight(2)
+        self.header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
 
         # Stats cards
         stats_layout = QHBoxLayout()
@@ -1080,16 +1242,14 @@ class OptimizerUI(GalaxyBackground):
         
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
-        self.disk_card = StatCard("Free Space", "0", "GB")
-        self.tier_card = StatCard("AI Tier", "--", "")
-        for card in (self.cleaned_card, self.optimized_card, self.disk_card, self.tier_card):
+        self.cleaned_card.setObjectName("statCard")
+        self.optimized_card.setObjectName("statCard")
+        for card in (self.cleaned_card, self.optimized_card):
             card.setFixedSize(170, 80)
         
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
         stats_layout.addWidget(self.optimized_card)
-        stats_layout.addWidget(self.disk_card)
-        stats_layout.addWidget(self.tier_card)
         stats_layout.addStretch()
 
         # Button
@@ -1113,27 +1273,65 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
 
-        self.ai_status = PulseLabel("AI ready: adaptive profile online", min_opacity=0.55, max_opacity=0.95)
-        self.ai_status.setFont(QFont("Segoe UI", 10))
-        self.ai_status.setStyleSheet("color: #fecaca;")
-
         self.safety_note = QLabel("Restore point enabled for safe rollback")
         self.safety_note.setFont(QFont("Segoe UI", 9))
         self.safety_note.setStyleSheet("color: #fcd34d;")
 
+        # Settings panel
+        self.settings_panel = QFrame()
+        self.settings_panel.setObjectName("settingsPanel")
+        self.settings_panel.setFixedWidth(520)
+        self.settings_panel.setVisible(False)
+        settings_layout = QVBoxLayout(self.settings_panel)
+        settings_layout.setContentsMargins(20, 18, 20, 16)
+        settings_layout.setSpacing(14)
+
+        settings_header = QHBoxLayout()
+        settings_header.setContentsMargins(0, 0, 0, 2)
+        self.settings_title = QLabel("Settings")
+        self.settings_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        settings_header.addWidget(self.settings_title)
+        settings_header.addStretch()
+        settings_layout.addLayout(settings_header)
+
+        self.visual_fx_checkbox = QCheckBox("Enable visual FX")
+        self.visual_fx_checkbox.setChecked(True)
+        self.visual_fx_checkbox.toggled.connect(self.set_visual_fx_enabled)
+
+        self.show_completion_checkbox = QCheckBox("Show completion dialog")
+        self.show_completion_checkbox.setChecked(True)
+
+        self.theme_checkbox = QCheckBox("Light mode")
+        self.theme_checkbox.setChecked(True)
+        self.theme_checkbox.toggled.connect(self.toggle_theme)
+
+        settings_layout.addWidget(self.visual_fx_checkbox)
+        settings_layout.addWidget(self.show_completion_checkbox)
+        settings_layout.addWidget(self.theme_checkbox)
+
+        self.visual_fx_checkbox.setToolTip("Animated stars and particle effects")
+        self.show_completion_checkbox.setToolTip("Show completion dialog after optimization")
+        self.theme_checkbox.setToolTip("Switch between dark and light mode")
+
         # Layout assembly
-        content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addLayout(top_bar)
+        content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addLayout(badges_layout)
-        content_layout.addWidget(header_line)
+        content_layout.addWidget(self.header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
         content_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.settings_panel, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        self.theme = LIGHT_THEME
+        self.set_visual_fx_enabled(True)
+        self._refresh_settings_icon()
+        self.apply_theme()
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
@@ -1178,11 +1376,10 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setText(text)
 
     def update_insight(self, text):
-        self.ai_status.setText(text)
+        self.substatus.setText(text)
 
     def update_profile(self, profile):
-        self.disk_card.set_value(profile.get("disk_free", 0))
-        self.tier_card.set_value(profile.get("tier", "--"))
+        return
 
     def finish_optimization(self, stats):
         self.status.setText("✨ Optimization Complete!")
@@ -1191,8 +1388,6 @@ class OptimizerUI(GalaxyBackground):
         # Update stat cards
         self.cleaned_card.set_value(f"{stats['cleaned_mb']:.0f}")
         self.optimized_card.set_value(stats['optimizations_applied'])
-        self.disk_card.set_value(stats.get("disk_free_gb", 0))
-        self.tier_card.set_value(stats.get("tier", "--"))
         
         self.progress.setValue(100)
         self.progress.setFormat("Complete")
@@ -1200,41 +1395,40 @@ class OptimizerUI(GalaxyBackground):
         # Subtle particle burst
         self.add_particle_burst(self.width()//2, self.height()//2, 24)
         
-        # Show summary
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Optimization Complete")
-        msg.setText(
-            f"✅ System optimization completed!\n\n"
-            f"📊 Statistics:\n"
-            f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
-            f"• Optimizations: {stats['optimizations_applied']}\n"
-            f"• Duration: {stats['duration']:.1f}s\n"
-            f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
-            f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
-            f"• Errors: {stats['errors']}\n"
-            f"• Skipped: {stats['skipped']} (advanced features)"
-        )
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setStyleSheet("""
-            QMessageBox {
-                background: #1a1a1a;
-            }
-            QMessageBox QLabel {
-                color: white;
-                font-family: 'Segoe UI';
-            }
-            QPushButton {
-                background: #ef4444;
-                color: white;
-                padding: 8px 20px;
-                border-radius: 6px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background: #f87171;
-            }
-        """)
-        msg.exec()
+        if self.show_completion_checkbox.isChecked():
+            # Show summary
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Optimization Complete")
+            msg.setText(
+                f"✅ System optimization completed!\n\n"
+                f"📊 Statistics:\n"
+                f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
+                f"• Optimizations: {stats['optimizations_applied']}\n"
+                f"• Duration: {stats['duration']:.1f}s\n"
+                f"• Errors: {stats['errors']}\n"
+                f"• Skipped: {stats['skipped']} (advanced features)"
+            )
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setStyleSheet("""
+                QMessageBox {
+                    background: #1a1a1a;
+                }
+                QMessageBox QLabel {
+                    color: white;
+                    font-family: 'Segoe UI';
+                }
+                QPushButton {
+                    background: #ef4444;
+                    color: white;
+                    padding: 8px 20px;
+                    border-radius: 6px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: #f87171;
+                }
+            """)
+            msg.exec()
         
         # Re-enable button
         self.button.setEnabled(True)
@@ -1242,6 +1436,153 @@ class OptimizerUI(GalaxyBackground):
         self.button.start_pulse()
         self.progress.setValue(0)
         self.progress.setFormat("Ready")
+
+    def _fade_widget(self, widget, start_opacity, end_opacity, duration, hide_when_done=False):
+        effect = widget.graphicsEffect()
+        if not isinstance(effect, QGraphicsOpacityEffect):
+            effect = QGraphicsOpacityEffect(widget)
+            widget.setGraphicsEffect(effect)
+
+        if end_opacity > 0:
+            widget.show()
+
+        anim = QPropertyAnimation(effect, b"opacity", self)
+        anim.setDuration(duration)
+        anim.setStartValue(start_opacity)
+        anim.setEndValue(end_opacity)
+        anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+        if hide_when_done:
+            anim.finished.connect(widget.hide)
+
+        # Keep a reference so animation isn't garbage collected
+        self._widget_fade_anim = anim
+        anim.start()
+
+    def toggle_settings_panel(self):
+        currently_visible = self.settings_panel.isVisible()
+        self._settings_open = not currently_visible
+
+        if self._settings_open:
+            self.settings_panel.setVisible(True)
+
+        self._refresh_settings_icon()
+        self._fade_widget(
+            self.settings_panel,
+            0.0 if self._settings_open else 1.0,
+            1.0 if self._settings_open else 0.0,
+            220,
+            hide_when_done=not self._settings_open
+        )
+
+    def _refresh_settings_icon(self):
+        if self._settings_open:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCloseButton)
+        else:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        self.settings_btn.setIcon(icon)
+
+    def toggle_theme(self, light_mode: bool):
+        self.theme = LIGHT_THEME if light_mode else DARK_THEME
+        self.apply_theme()
+
+    def apply_theme(self):
+        is_light = self.theme == LIGHT_THEME
+        accent = self.theme["accent"]
+        bg = "rgba(248, 250, 252, 0.80)" if is_light else "rgba(2, 6, 23, 0.78)"
+        panel_border = "#cbd5e1" if is_light else "#334155"
+        hover_ring = "#94a3b8" if is_light else "#f87171"
+        panel_bg = "rgba(255, 255, 255, 0.95)" if is_light else "rgba(17, 24, 39, 0.92)"
+        stat_bg = "rgba(241, 245, 249, 0.55)" if is_light else "rgba(15, 23, 42, 0.45)"
+        self.setStyleSheet(
+            f"""
+            QWidget {{ background: transparent; color: {self.theme['text']}; }}
+            QCheckBox {{ color: {self.theme['muted']}; font: 10pt 'Segoe UI'; }}
+            QCheckBox::indicator {{ width: 16px; height: 16px; }}
+            QCheckBox::indicator:unchecked {{
+                border: 1px solid {panel_border};
+                border-radius: 4px;
+                background: {'#ffffff' if is_light else '#0f172a'};
+            }}
+            QCheckBox::indicator:checked {{
+                border: 1px solid {accent};
+                border-radius: 4px;
+                background: {accent};
+            }}
+            QToolButton#settings {{
+                background: qradialgradient(cx:0.35, cy:0.35, radius:0.9,
+                    fx:0.35, fy:0.35,
+                    stop:0 {'#ffffff' if is_light else '#1f2937'},
+                    stop:1 {'#dbe2ea' if is_light else '#0b1220'});
+                color: {'#111827' if is_light else '#f8fafc'};
+                border: 1px solid {accent};
+                border-radius: 19px;
+                font-size: 16px;
+                font-weight: bold;
+            }}
+            QToolButton#settings:hover {{
+                border: 1px solid {hover_ring};
+                background: {'#f8fafc' if is_light else '#1e293b'};
+            }}
+            QToolButton#settings:pressed {{
+                padding-top: 1px;
+                padding-left: 1px;
+                background: {'#e2e8f0' if is_light else '#0f172a'};
+            }}
+            QFrame#settingsPanel {{
+                background: {panel_bg};
+                border-radius: 12px;
+                border: 1px solid {panel_border};
+            }}
+            QFrame#statCard {{
+                background: {stat_bg};
+                border-radius: 12px;
+                border: 1px solid {panel_border};
+            }}
+            """
+        )
+
+        self.title_label.setStyleSheet(f"color: {self.theme['text']}; letter-spacing: 2px;")
+        self.subtitle_label.setStyleSheet(f"color: {self.theme['subtext']};")
+        self.settings_title.setStyleSheet(f"color: {self.theme['text']}; border: none;")
+        self.header_line.setStyleSheet(
+            f"background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 {accent}, stop:1 rgba(239,68,68,0)); border-radius: 1px;"
+        )
+        badge_bg = "rgba(241, 245, 249, 0.95)" if is_light else "rgba(127, 29, 29, 0.55)"
+        badge_border = "#cbd5e1" if is_light else "#7f1d1d"
+        for badge in self.badges:
+            badge.setStyleSheet(
+                f"color: {self.theme['muted']}; background: {badge_bg};"
+                f"padding: 4px 10px; border-radius: 10px; border: 1px solid {badge_border};"
+            )
+
+        self.progress.setStyleSheet(
+            f"""
+            QProgressBar {{
+                background: {bg};
+                border-radius: 12px;
+                color: {self.theme['text']};
+                font-weight: bold;
+                font-family: 'Segoe UI';
+                text-align: center;
+                border: 1px solid {panel_border};
+            }}
+            QProgressBar::chunk {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 {accent}, stop:1 {'#fb7185' if is_light else '#f87171'});
+                border-radius: 10px;
+            }}
+            """
+        )
+        self.button.apply_theme(self.theme)
+        self.cleaned_card.apply_theme(self.theme)
+        self.optimized_card.apply_theme(self.theme)
+
+        self.title_style_refresh()
+
+    def title_style_refresh(self):
+        self.status.setStyleSheet(f"color: {self.theme['accent']}; letter-spacing: 0.5px;")
+        self.substatus.setStyleSheet(f"color: {self.theme['subtext']};")
+        self.safety_note.setStyleSheet(f"color: {self.theme['warn']};")
 
     def handle_error(self, error_msg):
         self.status.setText("❌ Error occurred")
