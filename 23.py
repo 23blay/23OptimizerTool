@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearG
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame, QCheckBox, QToolButton
+    QHBoxLayout, QFrame, QCheckBox, QToolButton, QStyle
 )
 
 
@@ -1199,11 +1199,13 @@ class OptimizerUI(GalaxyBackground):
         top_bar = QHBoxLayout()
         top_bar.addStretch()
         self.settings_btn = QToolButton()
-        self.settings_btn.setText("⚙")
         self.settings_btn.setObjectName("settings")
         self.settings_btn.setFixedSize(38, 38)
+        self.settings_btn.setIconSize(QRectF(0, 0, 18, 18).size().toSize())
+        self.settings_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.settings_btn.clicked.connect(self.toggle_settings_panel)
+        self._set_settings_button_icon(False)
         top_bar.addWidget(self.settings_btn)
 
         # Header
@@ -1280,14 +1282,22 @@ class OptimizerUI(GalaxyBackground):
         self.settings_panel = QFrame()
         self.settings_panel.setObjectName("settingsPanel")
         self.settings_panel.setFixedWidth(460)
+        self.settings_panel.setMinimumHeight(180)
         self.settings_panel.setVisible(False)
         settings_layout = QVBoxLayout(self.settings_panel)
         settings_layout.setContentsMargins(20, 16, 20, 16)
-        settings_layout.setSpacing(14)
+        settings_layout.setSpacing(12)
 
         self.settings_title = QLabel("Settings")
         self.settings_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
         settings_layout.addWidget(self.settings_title)
+
+        settings_divider = QFrame()
+        settings_divider.setFrameShape(QFrame.Shape.HLine)
+        settings_divider.setFrameShadow(QFrame.Shadow.Plain)
+        settings_divider.setFixedHeight(1)
+        settings_divider.setObjectName("settingsDivider")
+        settings_layout.addWidget(settings_divider)
 
         self.visual_fx_checkbox = QCheckBox("Enable visual FX")
         self.visual_fx_checkbox.setChecked(True)
@@ -1303,6 +1313,7 @@ class OptimizerUI(GalaxyBackground):
         settings_layout.addWidget(self.visual_fx_checkbox)
         settings_layout.addWidget(self.show_completion_checkbox)
         settings_layout.addWidget(self.theme_checkbox)
+        settings_layout.addStretch(1)
 
         self.visual_fx_checkbox.setToolTip("Animated stars and particle effects")
         self.show_completion_checkbox.setToolTip("Show completion dialog after optimization")
@@ -1453,15 +1464,23 @@ class OptimizerUI(GalaxyBackground):
         anim.start()
 
     def toggle_settings_panel(self):
-        self.settings_btn.setText("⚙" if self.settings_panel.isVisible() else "✕")
-        self.settings_panel.setVisible(not self.settings_panel.isVisible())
+        will_show = not self.settings_panel.isVisible()
+        self._set_settings_button_icon(will_show)
+        self.settings_panel.setVisible(will_show)
         self._fade_widget(
             self.settings_panel,
-            0.0 if self.settings_panel.isVisible() else 1.0,
-            1.0 if self.settings_panel.isVisible() else 0.0,
+            0.0 if will_show else 1.0,
+            1.0 if will_show else 0.0,
             220,
-            hide_when_done=not self.settings_panel.isVisible()
+            hide_when_done=not will_show
         )
+
+    def _set_settings_button_icon(self, expanded: bool):
+        if expanded:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_TitleBarCloseButton)
+        else:
+            icon = self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        self.settings_btn.setIcon(icon)
 
     def toggle_theme(self, light_mode: bool):
         self.theme = LIGHT_THEME if light_mode else DARK_THEME
@@ -1514,6 +1533,10 @@ class OptimizerUI(GalaxyBackground):
                 background: {panel_bg};
                 border-radius: 12px;
                 border: 1px solid {panel_border};
+            }}
+            QFrame#settingsDivider {{
+                background: {panel_border};
+                border: none;
             }}
             QFrame#statCard {{
                 background: {stat_bg};
