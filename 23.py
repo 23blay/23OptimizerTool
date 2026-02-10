@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearG
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame, QCheckBox, QToolButton, QStyle
+    QHBoxLayout, QFrame, QCheckBox, QToolButton, QStyle, QSizePolicy
 )
 
 
@@ -1280,11 +1280,13 @@ class OptimizerUI(GalaxyBackground):
         # Settings panel
         self.settings_panel = QFrame()
         self.settings_panel.setObjectName("settingsPanel")
-        self.settings_panel.setFixedWidth(520)
+        self.settings_panel.setFixedWidth(560)
+        self.settings_panel.setMinimumHeight(220)
+        self.settings_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
         self.settings_panel.setVisible(False)
         settings_layout = QVBoxLayout(self.settings_panel)
-        settings_layout.setContentsMargins(20, 18, 20, 16)
-        settings_layout.setSpacing(14)
+        settings_layout.setContentsMargins(24, 20, 24, 20)
+        settings_layout.setSpacing(18)
 
         settings_header = QHBoxLayout()
         settings_header.setContentsMargins(0, 0, 0, 2)
@@ -1293,6 +1295,11 @@ class OptimizerUI(GalaxyBackground):
         settings_header.addWidget(self.settings_title)
         settings_header.addStretch()
         settings_layout.addLayout(settings_header)
+
+        divider = QFrame()
+        divider.setFixedHeight(1)
+        divider.setObjectName("settingsDivider")
+        settings_layout.addWidget(divider)
 
         self.visual_fx_checkbox = QCheckBox("Enable visual FX")
         self.visual_fx_checkbox.setChecked(True)
@@ -1308,6 +1315,7 @@ class OptimizerUI(GalaxyBackground):
         settings_layout.addWidget(self.visual_fx_checkbox)
         settings_layout.addWidget(self.show_completion_checkbox)
         settings_layout.addWidget(self.theme_checkbox)
+        settings_layout.addStretch(1)
 
         self.visual_fx_checkbox.setToolTip("Animated stars and particle effects")
         self.show_completion_checkbox.setToolTip("Show completion dialog after optimization")
@@ -1497,7 +1505,8 @@ class OptimizerUI(GalaxyBackground):
             f"""
             QWidget {{ background: transparent; color: {self.theme['text']}; }}
             QCheckBox {{ color: {self.theme['muted']}; font: 10pt 'Segoe UI'; }}
-            QCheckBox::indicator {{ width: 16px; height: 16px; }}
+            QCheckBox {{ spacing: 10px; padding: 4px 0; min-height: 24px; }}
+            QCheckBox::indicator {{ width: 18px; height: 18px; }}
             QCheckBox::indicator:unchecked {{
                 border: 1px solid {panel_border};
                 border-radius: 4px;
@@ -1532,6 +1541,10 @@ class OptimizerUI(GalaxyBackground):
                 background: {panel_bg};
                 border-radius: 12px;
                 border: 1px solid {panel_border};
+            }}
+            QFrame#settingsDivider {{
+                background: {panel_border};
+                border: none;
             }}
             QFrame#statCard {{
                 background: {stat_bg};
