@@ -285,7 +285,7 @@ class OptimizerWorker(QObject):
         if not focus:
             focus.append("System Balance")
 
-        tagline = f"AI Focus: {', '.join(focus)} • Tier: {tier} • Free Space: {disk_free}GB"
+        tagline = f"Profile: {', '.join(focus)} | {tier}"
         return {
             "tier": tier,
             "focus": focus,
@@ -1081,141 +1081,157 @@ class OptimizerUI(GalaxyBackground):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} – {VERSION}")
         self.setFixedSize(1100, 760)
+        self.current_theme = "dark"
 
         layout = QVBoxLayout(self)
         layout.setSpacing(0)
         layout.setContentsMargins(30, 30, 30, 30)
 
         content_layout = QVBoxLayout()
-        content_layout.setSpacing(18)
+        content_layout.setSpacing(14)
         content_layout.setContentsMargins(10, 0, 10, 0)
 
-        # Header
+        top_row = QHBoxLayout()
+        top_row.addStretch()
+        self.settings_button = QPushButton("⚙")
+        self.settings_button.setFixedSize(38, 38)
+        self.settings_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.settings_button.clicked.connect(self.toggle_settings_panel)
+        top_row.addWidget(self.settings_button)
+
+        self.settings_panel = QFrame()
+        self.settings_panel.setVisible(False)
+        panel_layout = QVBoxLayout(self.settings_panel)
+        panel_layout.setContentsMargins(14, 10, 14, 10)
+        panel_layout.setSpacing(8)
+
+        settings_title = QLabel("Settings")
+        settings_title.setFont(QFont("Segoe UI", 10, QFont.Weight.Bold))
+
+        self.visual_fx_checkbox = QCheckBox("Enable visual FX")
+        self.visual_fx_checkbox.setChecked(False)
+        self.visual_fx_checkbox.toggled.connect(self.set_visual_fx_enabled)
+
+        self.show_completion_checkbox = QCheckBox("Show completion dialog")
+        self.show_completion_checkbox.setChecked(True)
+
+        theme_row = QHBoxLayout()
+        theme_label = QLabel("Theme")
+        self.dark_mode_button = QPushButton("Dark")
+        self.light_mode_button = QPushButton("Light")
+        self.dark_mode_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.light_mode_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.dark_mode_button.clicked.connect(lambda: self.apply_theme("dark"))
+        self.light_mode_button.clicked.connect(lambda: self.apply_theme("light"))
+        theme_row.addWidget(theme_label)
+        theme_row.addStretch()
+        theme_row.addWidget(self.dark_mode_button)
+        theme_row.addWidget(self.light_mode_button)
+
+        panel_layout.addWidget(settings_title)
+        panel_layout.addWidget(self.visual_fx_checkbox)
+        panel_layout.addWidget(self.show_completion_checkbox)
+        panel_layout.addLayout(theme_row)
+
         title = QLabel(APP_NAME)
-        title.setFont(QFont("Segoe UI", 44, QFont.Weight.Bold))
-        title.setStyleSheet("color: white; letter-spacing: 2px;")
+        title.setFont(QFont("Segoe UI", 34, QFont.Weight.Bold))
 
-        subtitle = PulseLabel("One-click system optimization")
+        subtitle = QLabel("Safe • Powerful • Universal")
         subtitle.setFont(QFont("Segoe UI", 12))
-        subtitle.setStyleSheet("color: #e5e7eb;")
-
-        badges_layout = QHBoxLayout()
-        badges_layout.setSpacing(10)
-        badges_layout.addStretch()
-        for badge_text in ("One-Click", "Windows 10/11", "Safe Optimizations", "Performance"):
-            badge = QLabel(badge_text)
-            badge.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-            badge.setStyleSheet(
-                "color: #fecaca; background: rgba(127, 29, 29, 0.55);"
-                "padding: 4px 10px; border-radius: 10px; border: 1px solid #7f1d1d;"
-            )
-            badges_layout.addWidget(badge)
-        badges_layout.addStretch()
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         header_line = QFrame()
-        header_line.setFixedHeight(2)
-        header_line.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(239,68,68,0), stop:0.5 rgba(239,68,68,0.6), stop:1 rgba(239,68,68,0)); border-radius: 1px;")
+        header_line.setFixedHeight(1)
 
-        # Stats cards
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(20)
-        
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
-        self.disk_card = StatCard("Free Space", "0", "GB")
-        self.tier_card = StatCard("AI Tier", "--", "")
-        for card in (self.cleaned_card, self.optimized_card, self.disk_card, self.tier_card):
-            card.setFixedSize(170, 80)
-        
+        for card in (self.cleaned_card, self.optimized_card):
+            card.setFixedSize(190, 82)
         stats_layout.addStretch()
         stats_layout.addWidget(self.cleaned_card)
         stats_layout.addWidget(self.optimized_card)
-        stats_layout.addWidget(self.disk_card)
-        stats_layout.addWidget(self.tier_card)
         stats_layout.addStretch()
 
-        # Button
         self.button = AnimatedButton("START OPTIMIZATION")
         self.button.setMinimumWidth(320)
         self.button.start_pulse()
         self.button.clicked.connect(self.start_optimization)
 
-        # Progress
         self.progress = GlowProgressBar()
         self.progress.setFixedWidth(600)
         self.progress.setValue(0)
         self.progress.setFormat("Ready")
 
-        # Status labels
-        self.status = QLabel("Ready to optimize")
+        self.status = QLabel("Ready")
         self.status.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
-        self.status.setStyleSheet("color: #f87171; letter-spacing: 0.5px;")
+        self.status.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         self.substatus = QLabel("Click Start to run safe optimizations")
-        self.substatus.setFont(QFont("Segoe UI", 11))
-        self.substatus.setStyleSheet("color: #fca5a5;")
+        self.substatus.setFont(QFont("Segoe UI", 10))
+        self.substatus.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        self.ai_status = PulseLabel("AI ready: adaptive profile online", min_opacity=0.55, max_opacity=0.95)
-        self.ai_status.setFont(QFont("Segoe UI", 10))
-        self.ai_status.setStyleSheet("color: #fecaca;")
-
-        self.safety_note = QLabel("Restore point enabled for safe rollback")
+        self.safety_note = QLabel("Safe mode and restore point protections are active")
         self.safety_note.setFont(QFont("Segoe UI", 9))
-        self.safety_note.setStyleSheet("color: #fcd34d;")
+        self.safety_note.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        # Behavior toggles
-        toggles_row = QHBoxLayout()
-        toggles_row.setSpacing(24)
-        toggles_row.addStretch()
-
-        self.visual_fx_checkbox = QCheckBox("Enable visual FX")
-        self.visual_fx_checkbox.setChecked(False)
-        self.visual_fx_checkbox.setStyleSheet(
-            "QCheckBox { color: #fecaca; font: 10pt 'Segoe UI'; }"
-            "QCheckBox::indicator { width: 16px; height: 16px; }"
-        )
-        self.visual_fx_checkbox.toggled.connect(self.set_visual_fx_enabled)
-
-        self.show_completion_checkbox = QCheckBox("Show completion dialog")
-        self.show_completion_checkbox.setChecked(True)
-        self.show_completion_checkbox.setStyleSheet(
-            "QCheckBox { color: #fecaca; font: 10pt 'Segoe UI'; }"
-            "QCheckBox::indicator { width: 16px; height: 16px; }"
-        )
-
-        toggles_row.addWidget(self.visual_fx_checkbox)
-        toggles_row.addWidget(self.show_completion_checkbox)
-        toggles_row.addStretch()
-
-        self.dialog_hint = PulseLabel("Completion summary pop-up is enabled", min_opacity=0.5, max_opacity=0.95)
+        self.dialog_hint = QLabel("Completion dialog enabled")
         self.dialog_hint.setFont(QFont("Segoe UI", 9))
-        self.dialog_hint.setStyleSheet("color: #fca5a5;")
+        self.dialog_hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.show_completion_checkbox.toggled.connect(self.update_completion_hint)
 
-        # Layout assembly
+        content_layout.addLayout(top_row)
+        content_layout.addWidget(self.settings_panel)
         content_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(subtitle, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addLayout(badges_layout)
         content_layout.addWidget(header_line)
         content_layout.addLayout(stats_layout)
-        content_layout.addSpacing(10)
+        content_layout.addSpacing(8)
         content_layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.progress, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.status, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addLayout(toggles_row)
-        content_layout.addWidget(self.dialog_hint, alignment=Qt.AlignmentFlag.AlignHCenter)
-
-        self.update_completion_hint(self.show_completion_checkbox.isChecked())
+        content_layout.addWidget(self.status)
+        content_layout.addWidget(self.substatus)
+        content_layout.addWidget(self.safety_note)
+        content_layout.addWidget(self.dialog_hint)
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
         layout.addStretch(1)
 
+        self.update_completion_hint(self.show_completion_checkbox.isChecked())
+        self.apply_theme("dark")
+
+    def toggle_settings_panel(self):
+        self.settings_panel.setVisible(not self.settings_panel.isVisible())
+
+    def apply_theme(self, theme_name: str):
+        self.current_theme = theme_name
+        if theme_name == "light":
+            self.setStyleSheet("""
+                QWidget { background: #f4f4f5; color: #111827; }
+                QFrame { background: rgba(255,255,255,0.92); border: 1px solid #d4d4d8; border-radius: 10px; }
+                QPushButton { background: #e4e4e7; color: #111827; border-radius: 10px; padding: 6px 12px; border: 1px solid #d4d4d8; }
+                QCheckBox { color: #111827; }
+                QLabel { color: #111827; }
+                QProgressBar { background: #e4e4e7; color: #111827; border-radius: 12px; }
+                QProgressBar::chunk { background: #dc2626; border-radius: 10px; }
+            """)
+        else:
+            self.setStyleSheet("""
+                QWidget { background: #080808; color: #f3f4f6; }
+                QFrame { background: rgba(24,24,27,0.92); border: 1px solid #3f3f46; border-radius: 10px; }
+                QPushButton { background: #27272a; color: #f3f4f6; border-radius: 10px; padding: 6px 12px; border: 1px solid #3f3f46; }
+                QCheckBox { color: #f3f4f6; }
+                QLabel { color: #f3f4f6; }
+                QProgressBar { background: #18181b; color: #f3f4f6; border-radius: 12px; }
+                QProgressBar::chunk { background: #dc2626; border-radius: 10px; }
+            """)
+
+        self.dark_mode_button.setEnabled(theme_name != "dark")
+        self.light_mode_button.setEnabled(theme_name != "light")
+
     def start_optimization(self):
-        # Visual feedback
         self.button.stop_pulse()
         self.button.setEnabled(False)
         self.button.set_busy(True)
@@ -1223,8 +1239,7 @@ class OptimizerUI(GalaxyBackground):
         self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
         self.progress.setValue(0)
         self.progress.setFormat("Optimizing... %p%")
-        
-        # Start worker
+
         self.worker = OptimizerWorker()
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
@@ -1233,12 +1248,12 @@ class OptimizerUI(GalaxyBackground):
         self.worker.profile.connect(self.update_profile)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
-        
+
         Thread(target=self.worker.run, daemon=True).start()
 
     def update_progress(self, value):
         self.progress.setValue(value)
-        if value % 10 == 0:  # Particle burst every 10%
+        if value % 10 == 0:
             self.add_particle_burst(
                 random.randint(100, self.width()-100),
                 random.randint(100, self.height()-100),
@@ -1253,66 +1268,39 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setText(text)
 
     def update_insight(self, text):
-        self.ai_status.setText(text)
+        # Keep the interface low-key; reuse substatus for concise updates.
+        self.substatus.setText(text)
 
     def update_profile(self, profile):
-        self.disk_card.set_value(profile.get("disk_free", 0))
-        self.tier_card.set_value(profile.get("tier", "--"))
+        # Profile data is still collected internally; UI intentionally stays minimal.
+        pass
 
     def finish_optimization(self, stats):
-        self.status.setText("✨ Optimization Complete!")
-        self.substatus.setText("Your system has been optimized successfully")
-        
-        # Update stat cards
+        self.status.setText("Optimization Complete")
+        self.substatus.setText("System optimizations finished safely")
+
         self.cleaned_card.set_value(f"{stats['cleaned_mb']:.0f}")
         self.optimized_card.set_value(stats['optimizations_applied'])
-        self.disk_card.set_value(stats.get("disk_free_gb", 0))
-        self.tier_card.set_value(stats.get("tier", "--"))
-        
+
         self.progress.setValue(100)
         self.progress.setFormat("Complete")
 
-        # Subtle particle burst
         self.add_particle_burst(self.width()//2, self.height()//2, 24)
-        
+
         if self.show_completion_checkbox.isChecked():
-            # Show summary
             msg = QMessageBox(self)
             msg.setWindowTitle("Optimization Complete")
             msg.setText(
-                f"✅ System optimization completed!\n\n"
-                f"📊 Statistics:\n"
-                f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
-                f"• Optimizations: {stats['optimizations_applied']}\n"
-                f"• Duration: {stats['duration']:.1f}s\n"
-                f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
-                f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
-                f"• Errors: {stats['errors']}\n"
-                f"• Skipped: {stats['skipped']} (advanced features)"
+                f"Optimization completed safely.\n\n"
+                f"Cleaned: {stats['cleaned_mb']:.0f} MB\n"
+                f"Optimizations: {stats['optimizations_applied']}\n"
+                f"Duration: {stats['duration']:.1f}s\n"
+                f"Errors: {stats['errors']}\n"
+                f"Skipped: {stats['skipped']}"
             )
             msg.setIcon(QMessageBox.Icon.Information)
-            msg.setStyleSheet("""
-                QMessageBox {
-                    background: #1a1a1a;
-                }
-                QMessageBox QLabel {
-                    color: white;
-                    font-family: 'Segoe UI';
-                }
-                QPushButton {
-                    background: #ef4444;
-                    color: white;
-                    padding: 8px 20px;
-                    border-radius: 6px;
-                    font-weight: bold;
-                }
-                QPushButton:hover {
-                    background: #f87171;
-                }
-            """)
             msg.exec()
-        
-        # Re-enable button
+
         self.button.setEnabled(True)
         self.button.set_busy(False)
         self.button.start_pulse()
@@ -1321,11 +1309,11 @@ class OptimizerUI(GalaxyBackground):
 
     def update_completion_hint(self, enabled: bool):
         if enabled:
-            self.dialog_hint.setText("Completion summary pop-up is enabled")
+            self.dialog_hint.setText("Completion dialog enabled")
             self.dialog_hint.show()
-            self._fade_widget(self.dialog_hint, 0.0, 1.0, 280)
+            self._fade_widget(self.dialog_hint, 0.0, 1.0, 220)
         else:
-            self._fade_widget(self.dialog_hint, 1.0, 0.0, 240, hide_when_done=True)
+            self._fade_widget(self.dialog_hint, 1.0, 0.0, 220, hide_when_done=True)
 
     def _fade_widget(self, widget, start_opacity, end_opacity, duration, hide_when_done=False):
         effect = widget.graphicsEffect()
@@ -1344,17 +1332,16 @@ class OptimizerUI(GalaxyBackground):
         if hide_when_done:
             anim.finished.connect(widget.hide)
 
-        # Keep a reference so animation isn't garbage collected
         self._widget_fade_anim = anim
         anim.start()
 
     def handle_error(self, error_msg):
-        self.status.setText("❌ Error occurred")
+        self.status.setText("Error")
         self.substatus.setText(error_msg)
         self.progress.setFormat("Error")
-        
+
         QMessageBox.critical(self, "Error", f"An error occurred:\n{error_msg}")
-        
+
         self.button.setEnabled(True)
         self.button.set_busy(False)
         self.button.start_pulse()
