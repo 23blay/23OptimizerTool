@@ -11,7 +11,7 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearG
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
-    QHBoxLayout, QFrame, QCheckBox, QToolButton, QStyle
+    QHBoxLayout, QFrame, QCheckBox, QToolButton, QStyle, QSizePolicy
 )
 
 
@@ -1272,15 +1272,17 @@ class OptimizerUI(GalaxyBackground):
         self.substatus = QLabel("Click Start to run safe optimizations")
         self.substatus.setFont(QFont("Segoe UI", 11))
         self.substatus.setStyleSheet("color: #fca5a5;")
+        self.substatus.setWordWrap(True)
 
         self.safety_note = QLabel("Restore point enabled for safe rollback")
         self.safety_note.setFont(QFont("Segoe UI", 9))
         self.safety_note.setStyleSheet("color: #fcd34d;")
+        self.safety_note.setWordWrap(True)
 
         # Settings panel
         self.settings_panel = QFrame()
         self.settings_panel.setObjectName("settingsPanel")
-        self.settings_panel.setFixedWidth(460)
+        self.settings_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self.settings_panel.setVisible(False)
         settings_layout = QVBoxLayout(self.settings_panel)
         settings_layout.setContentsMargins(20, 18, 20, 16)
@@ -1290,6 +1292,7 @@ class OptimizerUI(GalaxyBackground):
         settings_header.setContentsMargins(0, 0, 0, 2)
         self.settings_title = QLabel("Settings")
         self.settings_title.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        self.settings_title.setWordWrap(False)
         settings_header.addWidget(self.settings_title)
         settings_header.addStretch()
         settings_layout.addLayout(settings_header)
@@ -1330,6 +1333,7 @@ class OptimizerUI(GalaxyBackground):
 
         self.theme = LIGHT_THEME
         self.set_visual_fx_enabled(True)
+        self._update_settings_panel_size()
         self._refresh_settings_icon()
         self.apply_theme()
 
@@ -1469,6 +1473,15 @@ class OptimizerUI(GalaxyBackground):
             220,
             hide_when_done=not self.settings_panel.isVisible()
         )
+
+    def _update_settings_panel_size(self):
+        # Keep settings panel roomy and consistent: roughly half-screen width.
+        panel_width = max(460, min(560, int(self.width() * 0.5)))
+        self.settings_panel.setFixedWidth(panel_width)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_settings_panel_size()
 
     def _refresh_settings_icon(self):
         if self._settings_open:
