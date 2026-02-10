@@ -534,7 +534,7 @@ class Particle:
 
 
 class PulseRing:
-    def __init__(self, x, y, max_radius=220, speed=6, color=QColor(37, 99, 235)):
+    def __init__(self, x, y, max_radius=220, speed=6, color=QColor(239, 68, 68)):
         self.x = x
         self.y = y
         self.radius = 0
@@ -556,7 +556,7 @@ class GalaxyBackground(QWidget):
         self.pulse_rings = []
         self.nebula_offset = 0
         self.scan_phase = 0
-        self.set_theme("light")
+        self.set_theme("dark")
 
         for _ in range(90):
             self.stars.append({
@@ -590,21 +590,21 @@ class GalaxyBackground(QWidget):
 
     def set_theme(self, theme):
         if theme == "dark":
-            self.background_colors = (QColor(11, 15, 26), QColor(7, 10, 18), QColor(3, 6, 12))
-            self.nebula_colors = (QColor(59, 130, 246, 35), QColor(148, 163, 184, 20), QColor(0, 0, 0, 0))
-            self.star_color = QColor(226, 232, 240)
-            self.particle_colors = [QColor(59, 130, 246), QColor(96, 165, 250), QColor(148, 163, 184)]
-            self.comet_color = QColor(96, 165, 250)
-            self.ring_color = QColor(59, 130, 246)
-            self.glow_colors = (QColor(59, 130, 246, 20), QColor(37, 99, 235, 10), QColor(0, 0, 0, 0))
+            self.background_colors = (QColor(10, 10, 10), QColor(5, 5, 5), QColor(0, 0, 0))
+            self.nebula_colors = (QColor(239, 68, 68, 45), QColor(127, 29, 29, 28), QColor(0, 0, 0, 0))
+            self.star_color = QColor(254, 226, 226)
+            self.particle_colors = [QColor(239, 68, 68), QColor(248, 113, 113), QColor(185, 28, 28)]
+            self.comet_color = QColor(248, 113, 113)
+            self.ring_color = QColor(239, 68, 68)
+            self.glow_colors = (QColor(220, 38, 38, 24), QColor(127, 29, 29, 12), QColor(0, 0, 0, 0))
         else:
-            self.background_colors = (QColor(246, 248, 252), QColor(231, 236, 245), QColor(218, 225, 237))
-            self.nebula_colors = (QColor(59, 130, 246, 25), QColor(148, 163, 184, 18), QColor(255, 255, 255, 0))
-            self.star_color = QColor(148, 163, 184)
-            self.particle_colors = [QColor(37, 99, 235), QColor(59, 130, 246), QColor(96, 165, 250)]
-            self.comet_color = QColor(96, 165, 250)
-            self.ring_color = QColor(96, 165, 250)
-            self.glow_colors = (QColor(99, 102, 241, 18), QColor(59, 130, 246, 8), QColor(255, 255, 255, 0))
+            self.background_colors = (QColor(20, 10, 10), QColor(12, 6, 6), QColor(6, 3, 3))
+            self.nebula_colors = (QColor(248, 113, 113, 35), QColor(220, 38, 38, 22), QColor(0, 0, 0, 0))
+            self.star_color = QColor(254, 202, 202)
+            self.particle_colors = [QColor(220, 38, 38), QColor(248, 113, 113), QColor(185, 28, 28)]
+            self.comet_color = QColor(248, 113, 113)
+            self.ring_color = QColor(239, 68, 68)
+            self.glow_colors = (QColor(220, 38, 38, 22), QColor(127, 29, 29, 10), QColor(0, 0, 0, 0))
         self.update()
 
     def spawn_comet(self):
@@ -897,16 +897,16 @@ class OptimizerUI(GalaxyBackground):
         self.theme = "light"
         self.theme_palette = {
             "light": {
-                "text_primary": "#0f172a", "text_secondary": "#475569", "text_muted": "#64748b", "accent": "#2563eb",
-                "accent_soft": "#60a5fa", "success": "#0f766e", "badge_bg": "rgba(255, 255, 255, 0.85)",
-                "badge_border": "#d0d7e2", "card_bg": "rgba(255, 255, 255, 0.78)", "card_border": "#d0d7e2",
-                "progress_bg": "rgba(255, 255, 255, 0.65)", "progress_border": "#d0d7e2", "dialog_bg": "#f8fafc", "dialog_text": "#0f172a",
+                "text_primary": "#fee2e2", "text_secondary": "#fecaca", "text_muted": "#fca5a5", "accent": "#ef4444",
+                "accent_soft": "#f87171", "success": "#fca5a5", "badge_bg": "rgba(25, 10, 10, 0.86)",
+                "badge_border": "#7f1d1d", "card_bg": "rgba(20, 8, 8, 0.82)", "card_border": "#7f1d1d",
+                "progress_bg": "rgba(14, 6, 6, 0.72)", "progress_border": "#7f1d1d", "dialog_bg": "#120707", "dialog_text": "#fee2e2",
             },
             "dark": {
-                "text_primary": "#e2e8f0", "text_secondary": "#cbd5f5", "text_muted": "#94a3b8", "accent": "#60a5fa",
-                "accent_soft": "#93c5fd", "success": "#2dd4bf", "badge_bg": "rgba(15, 23, 42, 0.85)",
-                "badge_border": "#1e293b", "card_bg": "rgba(15, 23, 42, 0.75)", "card_border": "#1e293b",
-                "progress_bg": "rgba(15, 23, 42, 0.7)", "progress_border": "#1e293b", "dialog_bg": "#0f172a", "dialog_text": "#e2e8f0",
+                "text_primary": "#fee2e2", "text_secondary": "#fecaca", "text_muted": "#fca5a5", "accent": "#dc2626",
+                "accent_soft": "#ef4444", "success": "#f87171", "badge_bg": "rgba(10, 4, 4, 0.9)",
+                "badge_border": "#7f1d1d", "card_bg": "rgba(8, 3, 3, 0.86)", "card_border": "#7f1d1d",
+                "progress_bg": "rgba(5, 2, 2, 0.78)", "progress_border": "#7f1d1d", "dialog_bg": "#080303", "dialog_text": "#fee2e2",
             },
         }
 
@@ -935,7 +935,7 @@ class OptimizerUI(GalaxyBackground):
             self.badges.append(badge)
 
         self.theme_toggle = QCheckBox("Dark mode")
-        self.theme_toggle.setChecked(False)
+        self.theme_toggle.setChecked(True)
         self.theme_toggle.stateChanged.connect(self.toggle_theme)
         badges_layout.addWidget(self.theme_toggle)
         badges_layout.addStretch()
@@ -1007,7 +1007,7 @@ class OptimizerUI(GalaxyBackground):
         layout.addLayout(content_layout)
         layout.addStretch(1)
 
-        self.apply_theme("light")
+        self.apply_theme("dark")
 
     def start_optimization(self):
         self.button.stop_pulse()
@@ -1082,12 +1082,12 @@ class OptimizerUI(GalaxyBackground):
             "bg_start": palette["accent"],
             "bg_end": palette["accent_soft"],
             "hover_start": palette["accent_soft"],
-            "hover_end": "#93c5fd" if theme == "light" else "#7dd3fc",
-            "pressed_start": "#1d4ed8" if theme == "light" else "#2563eb",
+            "hover_end": "#fca5a5" if theme == "light" else "#f87171",
+            "pressed_start": "#991b1b" if theme == "light" else "#7f1d1d",
             "pressed_end": palette["accent"],
-            "disabled_bg": "#cbd5f5" if theme == "light" else "#1e293b",
+            "disabled_bg": "#4c1d1d" if theme == "light" else "#2b0b0b",
             "disabled_text": palette["text_muted"],
-            "border": "rgba(255, 255, 255, 0.6)" if theme == "light" else "#1e293b",
+            "border": "rgba(254, 202, 202, 0.55)" if theme == "light" else "#7f1d1d",
             "text": "#f8fafc",
         })
 
@@ -1106,7 +1106,7 @@ class OptimizerUI(GalaxyBackground):
             "text": palette["text_primary"],
             "chunk_start": palette["accent"],
             "chunk_mid": palette["accent_soft"],
-            "chunk_end": "#93c5fd" if theme == "light" else "#7dd3fc",
+            "chunk_end": "#fca5a5" if theme == "light" else "#f87171",
         })
 
     def update_progress(self, value):
