@@ -1,6 +1,5 @@
 import sys, os, ctypes, subprocess, shutil, random, time, winreg, math
 from threading import Thread
-from datetime import datetime
 
 from PyQt6.QtCore import (
     Qt, QTimer, QRectF, pyqtSignal, QObject,
@@ -8,7 +7,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearGradient
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QPushButton, QLabel, QCheckBox, QComboBox, QTextEdit,
+    QApplication, QWidget, QPushButton, QLabel,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
     QHBoxLayout, QFrame
 )
@@ -56,27 +55,20 @@ class OptimizerWorker(QObject):
     status = pyqtSignal(str)
     substatus = pyqtSignal(str)
     insight = pyqtSignal(str)
-    profile = pyqtSignal(dict)
     done = pyqtSignal(dict)
     error = pyqtSignal(str)
-    step_count = pyqtSignal(int, int)
-    log_line = pyqtSignal(str)
 
-    def __init__(self, safe_mode=True, create_restore_point=True, mode="FPS"):
+    def __init__(self):
         super().__init__()
-        self.safe_mode = safe_mode
-        self.create_restore_point_enabled = create_restore_point
-        self.mode = mode
+        self.safe_mode = False
+        self.create_restore_point_enabled = True
         self.stats = {
             'cleaned_mb': 0,
             'optimizations_applied': 0,
             'errors': 0,
             'skipped': 0,
             'duration': 0,
-            'focus': '',
-            'tier': '',
-            'disk_free_gb': 0,
-            'mode': self.mode
+            'disk_free_gb': 0
         }
         self.ai_profile = {}
 
@@ -88,38 +80,25 @@ class OptimizerWorker(QObject):
             self.sys = self.get_system_info()
             time.sleep(0.3)
 
-            self.status.emit("AI planning optimization...")
-            self.substatus.emit("Building adaptive optimization profile")
-            self.ai_profile = self.build_ai_profile()
-            self.stats['focus'] = ", ".join(self.ai_profile["focus"])
-            self.stats['tier'] = self.ai_profile["tier"]
-            self.stats['disk_free_gb'] = self.ai_profile["disk_free"]
-            self.insight.emit(self.ai_profile["tagline"])
-            self.profile.emit(self.ai_profile)
+            self.status.emit("Preparing one-click optimization plan...")
+            self.stats['disk_free_gb'] = self.get_disk_free_gb()
+            self.insight.emit(f"One-click optimization ready • Free Space: {self.stats['disk_free_gb']}GB")
             time.sleep(0.3)
 
-            if self.create_restore_point_enabled and self.safe_mode:
+            if self.create_restore_point_enabled:
                 self.create_restore_point()
 
             steps = self._get_optimization_steps()
             total = len(steps)
 
             for i, (step_func, step_name, is_safe) in enumerate(steps):
-                self.step_count.emit(i + 1, total)
-                if self.safe_mode and not is_safe:
-                    self.substatus.emit(f"Skipped (advanced): {step_name}")
-                    self.log_line.emit(f"SKIP | {step_name}")
-                    self.stats['skipped'] += 1
-                else:
-                    try:
-                        self.status.emit(step_name)
-                        step_func()
-                        self.log_line.emit(f"OK   | {step_name}")
-                        self.stats['optimizations_applied'] += 1
-                    except Exception as e:
-                        self.stats['errors'] += 1
-                        self.log_line.emit(f"ERR  | {step_name}: {str(e)}")
-                        self.substatus.emit(f"Error in {step_name}: {str(e)}")
+                try:
+                    self.status.emit(step_name)
+                    step_func()
+                    self.stats['optimizations_applied'] += 1
+                except Exception as e:
+                    self.stats['errors'] += 1
+                    self.substatus.emit(f"Error in {step_name}: {str(e)}")
                 self.progress.emit(int(((i + 1) / total) * 100))
                 time.sleep(0.1)
 
@@ -178,13 +157,11 @@ class OptimizerWorker(QObject):
             (self.enable_hags, "Enabling hardware GPU scheduling", False),
             (self.disable_nagle, "Disabling Nagle for lower latency", False),
         ]
-        if self.mode in ("Latency", "Extreme"):
-            steps.append((self.optimize_network_latency, "Reapplying latency profile", False))
-        if self.mode == "Extreme":
-            steps.extend([
-                (self.enforce_ultimate_power, "Enforcing Ultimate Performance profile", False),
-                (self.disable_idle_states, "Reducing platform idle latency", False),
-            ])
+        steps.extend([
+            (self.optimize_network_latency, "Reapplying latency profile", False),
+            (self.enforce_ultimate_power, "Enforcing Ultimate Performance profile", False),
+            (self.disable_idle_states, "Reducing platform idle latency", False),
+        ])
         return steps
 
     def get_system_info(self):
@@ -239,42 +216,6 @@ class OptimizerWorker(QObject):
             return int(usage.free / (1024 ** 3))
         except Exception:
             return 0
-
-    def build_ai_profile(self):
-        disk_free = self.get_disk_free_gb()
-        disk_low = disk_free < 12
-        cores = self.sys.get("cores", 4)
-        ram = self.sys.get("ram", 8)
-        gpu = self.sys.get("gpu", "unknown")
-
-        tier_score = (cores * 1.2) + (ram / 2) + (8 if self.sys.get("ssd") else 0)
-        if tier_score >= 26:
-            tier = "Elite"
-        elif tier_score >= 16:
-            tier = "Balanced"
-        else:
-            tier = "Lite"
-
-        focus = []
-        if disk_low:
-            focus.append("Storage")
-        if ram <= 8:
-            focus.append("Memory")
-        if cores <= 4:
-            focus.append("Responsiveness")
-        if gpu != "unknown":
-            focus.append("Graphics")
-        if not focus:
-            focus.append("System Balance")
-
-        tagline = f"AI Focus: {', '.join(focus)} • Tier: {tier} • Free Space: {disk_free}GB"
-        return {
-            "tier": tier,
-            "focus": focus,
-            "tagline": tagline,
-            "disk_low": disk_low,
-            "disk_free": disk_free
-        }
 
     def create_restore_point(self):
         self.status.emit("Creating restore point...")
@@ -964,28 +905,8 @@ class OptimizerUI(GalaxyBackground):
             badges_layout.addWidget(badge)
             self.badges.append(badge)
 
-        self.theme_toggle = QCheckBox("Dark mode")
-        self.theme_toggle.setChecked(True)
-        self.theme_toggle.stateChanged.connect(self.toggle_theme)
-        badges_layout.addWidget(self.theme_toggle)
         badges_layout.addStretch()
 
-        self.safe_mode_toggle = QCheckBox("Safe mode (recommended)")
-        self.safe_mode_toggle.setChecked(True)
-        self.restore_toggle = QCheckBox("Create restore point")
-        self.restore_toggle.setChecked(True)
-
-        self.mode_box = QComboBox()
-        self.mode_box.addItems(["FPS", "Latency", "Extreme"])
-        self.mode_box.setCurrentText("FPS")
-
-        mode_row = QHBoxLayout()
-        mode_row.addStretch()
-        mode_row.addWidget(self.safe_mode_toggle)
-        mode_row.addWidget(self.restore_toggle)
-        mode_row.addWidget(QLabel("Mode:"))
-        mode_row.addWidget(self.mode_box)
-        mode_row.addStretch()
 
         self.header_line = QFrame()
         self.header_line.setFixedHeight(2)
@@ -996,10 +917,8 @@ class OptimizerUI(GalaxyBackground):
         self.cleaned_card = StatCard("Cleaned", "0", "MB")
         self.optimized_card = StatCard("Applied", "0", "")
         self.disk_card = StatCard("Free Space", "0", "GB")
-        self.tier_card = StatCard("AI Tier", "--", "")
-
         stats_layout.addStretch()
-        for c in (self.cleaned_card, self.optimized_card, self.disk_card, self.tier_card):
+        for c in (self.cleaned_card, self.optimized_card, self.disk_card):
             stats_layout.addWidget(c)
         stats_layout.addStretch()
 
@@ -1019,21 +938,15 @@ class OptimizerUI(GalaxyBackground):
         self.substatus = QLabel("Click Start to run optimization pipeline")
         self.substatus.setFont(QFont("Segoe UI", 11))
 
-        self.ai_status = PulseLabel("AI ready: adaptive profile online", min_opacity=0.55, max_opacity=0.95)
+        self.ai_status = PulseLabel("One-click optimization ready", min_opacity=0.55, max_opacity=0.95)
         self.ai_status.setFont(QFont("Segoe UI", 10))
 
-        self.safety_note = QLabel("Restore point + safe mode enabled")
+        self.safety_note = QLabel("One click. Full optimization.")
         self.safety_note.setFont(QFont("Segoe UI", 9))
-        self.step_label = QLabel("Pipeline step: 0/0")
-        self.step_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
-        self.log_view = QTextEdit()
-        self.log_view.setReadOnly(True)
-        self.log_view.setFixedHeight(120)
 
         content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addLayout(badges_layout)
-        content_layout.addLayout(mode_row)
         content_layout.addWidget(self.header_line)
         content_layout.addLayout(stats_layout)
         content_layout.addSpacing(10)
@@ -1043,8 +956,6 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.step_label, alignment=Qt.AlignmentFlag.AlignHCenter)
-        content_layout.addWidget(self.log_view)
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
@@ -1059,28 +970,17 @@ class OptimizerUI(GalaxyBackground):
         self.progress.setValue(0)
         self.progress.setFormat("Optimizing... %p%")
 
-        safe_mode = self.safe_mode_toggle.isChecked()
-        restore_enabled = self.restore_toggle.isChecked()
-        self.safety_note.setText(
-            "Safe mode active: advanced tweaks skipped" if safe_mode else "Advanced mode active: all tweaks enabled"
-        )
+        self.safety_note.setText("Running full one-click optimization...")
 
-        self.worker = OptimizerWorker(safe_mode=safe_mode, create_restore_point=restore_enabled, mode=self.mode_box.currentText())
-        self.log_view.clear()
+        self.worker = OptimizerWorker()
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
         self.worker.insight.connect(self.update_insight)
-        self.worker.profile.connect(self.update_profile)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
-        self.worker.step_count.connect(self.update_step_label)
-        self.worker.log_line.connect(self.append_log)
 
         Thread(target=self.worker.run, daemon=True).start()
-
-    def toggle_theme(self, state):
-        self.apply_theme("dark" if state == Qt.CheckState.Checked.value else "light")
 
     def apply_theme(self, theme):
         self.theme = theme
@@ -1108,21 +1008,6 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setStyleSheet(f"color: {palette['text_secondary']};")
         self.ai_status.setStyleSheet(f"color: {palette['text_muted']};")
         self.safety_note.setStyleSheet(f"color: {palette['success']};")
-        self.step_label.setStyleSheet(f"color: {palette['accent_soft']};")
-        self.log_view.setStyleSheet(f"background: {palette['progress_bg']}; color: {palette['text_primary']}; border: 1px solid {palette['progress_border']}; border-radius: 10px;")
-
-        check_style = (
-            "QCheckBox {"
-            f"color: {palette['text_primary']}; font-family: 'Segoe UI'; font-size: 9px; }}"
-            "QCheckBox::indicator { width: 16px; height: 16px; }"
-            "QCheckBox::indicator:unchecked {"
-            f"background: {palette['badge_bg']}; border: 1px solid {palette['badge_border']}; border-radius: 4px; }}"
-            "QCheckBox::indicator:checked {"
-            f"background: {palette['accent']}; border: 1px solid {palette['accent']}; border-radius: 4px; }}"
-        )
-        self.theme_toggle.setStyleSheet(check_style)
-        self.safe_mode_toggle.setStyleSheet(check_style)
-        self.restore_toggle.setStyleSheet(check_style)
 
         self.button.set_palette({
             "bg_start": palette["accent"],
@@ -1137,7 +1022,7 @@ class OptimizerUI(GalaxyBackground):
             "text": "#f8fafc",
         })
 
-        for card in (self.cleaned_card, self.optimized_card, self.disk_card, self.tier_card):
+        for card in (self.cleaned_card, self.optimized_card, self.disk_card):
             card.apply_palette({
                 "card_bg": palette["card_bg"],
                 "card_border": palette["card_border"],
@@ -1158,12 +1043,6 @@ class OptimizerUI(GalaxyBackground):
     def update_progress(self, value):
         self.progress.setValue(value)
 
-    def update_step_label(self, current, total):
-        self.step_label.setText(f"Pipeline step: {current}/{total}")
-
-    def append_log(self, line):
-        self.log_view.append(f"[{datetime.now().strftime('%H:%M:%S')}] {line}")
-
     def update_status(self, text):
         self.status.setText(text)
 
@@ -1173,10 +1052,6 @@ class OptimizerUI(GalaxyBackground):
     def update_insight(self, text):
         self.ai_status.setText(text)
 
-    def update_profile(self, profile):
-        self.disk_card.set_value(profile.get("disk_free", 0))
-        self.tier_card.set_value(profile.get("tier", "--"))
-
     def finish_optimization(self, stats):
         self.status.setText("✨ Optimization Complete!")
         self.substatus.setText("Your system has been optimized successfully")
@@ -1184,7 +1059,6 @@ class OptimizerUI(GalaxyBackground):
         self.cleaned_card.set_value(f"{stats['cleaned_mb']:.0f}")
         self.optimized_card.set_value(stats['optimizations_applied'])
         self.disk_card.set_value(stats.get("disk_free_gb", 0))
-        self.tier_card.set_value(stats.get("tier", "--"))
 
         self.progress.setValue(100)
         self.progress.setFormat("Complete")
@@ -1197,11 +1071,9 @@ class OptimizerUI(GalaxyBackground):
             f"• Cleaned: {stats['cleaned_mb']:.0f} MB\n"
             f"• Optimizations: {stats['optimizations_applied']}\n"
             f"• Duration: {stats['duration']:.1f}s\n"
-            f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
             f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
             f"• Errors: {stats['errors']}\n"
-            f"• Skipped: {stats['skipped']}\n"
-            f"• Mode: {stats.get('mode', 'FPS')}"
+            f"• Skipped: {stats['skipped']}"
         )
         msg.setIcon(QMessageBox.Icon.Information)
 
