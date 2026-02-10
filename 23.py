@@ -8,13 +8,13 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QPainter, QFont, QRadialGradient, QPen, QLinearGradient
 from PyQt6.QtWidgets import (
-    QApplication, QWidget, QPushButton, QLabel, QCheckBox,
+    QApplication, QWidget, QPushButton, QLabel, QCheckBox, QComboBox, QTextEdit,
     QVBoxLayout, QProgressBar, QMessageBox, QGraphicsOpacityEffect,
     QHBoxLayout, QFrame
 )
 
 APP_NAME = "23 Optimizer"
-VERSION = "v2.1"
+VERSION = "v2.2"
 
 SAFE_MODE = True
 CREATE_RESTORE_POINT = True
@@ -59,11 +59,14 @@ class OptimizerWorker(QObject):
     profile = pyqtSignal(dict)
     done = pyqtSignal(dict)
     error = pyqtSignal(str)
+    step_count = pyqtSignal(int, int)
+    log_line = pyqtSignal(str)
 
-    def __init__(self, safe_mode=True, create_restore_point=True):
+    def __init__(self, safe_mode=True, create_restore_point=True, mode="FPS"):
         super().__init__()
         self.safe_mode = safe_mode
         self.create_restore_point_enabled = create_restore_point
+        self.mode = mode
         self.stats = {
             'cleaned_mb': 0,
             'optimizations_applied': 0,
@@ -72,7 +75,8 @@ class OptimizerWorker(QObject):
             'duration': 0,
             'focus': '',
             'tier': '',
-            'disk_free_gb': 0
+            'disk_free_gb': 0,
+            'mode': self.mode
         }
         self.ai_profile = {}
 
@@ -101,16 +105,20 @@ class OptimizerWorker(QObject):
             total = len(steps)
 
             for i, (step_func, step_name, is_safe) in enumerate(steps):
+                self.step_count.emit(i + 1, total)
                 if self.safe_mode and not is_safe:
                     self.substatus.emit(f"Skipped (advanced): {step_name}")
+                    self.log_line.emit(f"SKIP | {step_name}")
                     self.stats['skipped'] += 1
                 else:
                     try:
                         self.status.emit(step_name)
                         step_func()
+                        self.log_line.emit(f"OK   | {step_name}")
                         self.stats['optimizations_applied'] += 1
                     except Exception as e:
                         self.stats['errors'] += 1
+                        self.log_line.emit(f"ERR  | {step_name}: {str(e)}")
                         self.substatus.emit(f"Error in {step_name}: {str(e)}")
                 self.progress.emit(int(((i + 1) / total) * 100))
                 time.sleep(0.1)
@@ -125,7 +133,7 @@ class OptimizerWorker(QObject):
         subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=timeout)
 
     def _get_optimization_steps(self):
-        return [
+        steps = [
             (self.clear_crash_dumps, "Clearing crash dumps", True),
             (self.clear_shader_cache, "Clearing shader cache", True),
             (self.clear_browser_cache, "Clearing browser caches", True),
@@ -170,6 +178,14 @@ class OptimizerWorker(QObject):
             (self.enable_hags, "Enabling hardware GPU scheduling", False),
             (self.disable_nagle, "Disabling Nagle for lower latency", False),
         ]
+        if self.mode in ("Latency", "Extreme"):
+            steps.append((self.optimize_network_latency, "Reapplying latency profile", False))
+        if self.mode == "Extreme":
+            steps.extend([
+                (self.enforce_ultimate_power, "Enforcing Ultimate Performance profile", False),
+                (self.disable_idle_states, "Reducing platform idle latency", False),
+            ])
+        return steps
 
     def get_system_info(self):
         info = {}
@@ -491,6 +507,17 @@ class OptimizerWorker(QObject):
             winreg.CloseKey(root)
         except Exception:
             pass
+
+
+    def enforce_ultimate_power(self):
+        self.substatus.emit("Enforcing Ultimate Performance power profile")
+        self._run_cmd("powercfg -duplicatescheme e9a42b02-d5df-448d-aa00-03f14749eb61")
+        self._run_cmd("powercfg -setactive e9a42b02-d5df-448d-aa00-03f14749eb61")
+
+    def disable_idle_states(self):
+        self.substatus.emit("Applying scheduler and timer latency tweaks")
+        self._run_cmd("bcdedit /set disabledynamictick yes")
+        self._run_cmd("bcdedit /set useplatformtick yes")
 
     def _safe_delete(self, path, pattern="*"):
         if not path or not os.path.exists(path):
@@ -945,10 +972,16 @@ class OptimizerUI(GalaxyBackground):
         self.restore_toggle = QCheckBox("Create restore point")
         self.restore_toggle.setChecked(True)
 
+        self.mode_box = QComboBox()
+        self.mode_box.addItems(["FPS", "Latency", "Extreme"])
+        self.mode_box.setCurrentText("FPS")
+
         mode_row = QHBoxLayout()
         mode_row.addStretch()
         mode_row.addWidget(self.safe_mode_toggle)
         mode_row.addWidget(self.restore_toggle)
+        mode_row.addWidget(QLabel("Mode:"))
+        mode_row.addWidget(self.mode_box)
         mode_row.addStretch()
 
         self.header_line = QFrame()
@@ -988,6 +1021,11 @@ class OptimizerUI(GalaxyBackground):
 
         self.safety_note = QLabel("Restore point + safe mode enabled")
         self.safety_note.setFont(QFont("Segoe UI", 9))
+        self.step_label = QLabel("Pipeline step: 0/0")
+        self.step_label.setFont(QFont("Segoe UI", 9, QFont.Weight.Bold))
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+        self.log_view.setFixedHeight(120)
 
         content_layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.subtitle_label, alignment=Qt.AlignmentFlag.AlignHCenter)
@@ -1002,6 +1040,8 @@ class OptimizerUI(GalaxyBackground):
         content_layout.addWidget(self.substatus, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.ai_status, alignment=Qt.AlignmentFlag.AlignHCenter)
         content_layout.addWidget(self.safety_note, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.step_label, alignment=Qt.AlignmentFlag.AlignHCenter)
+        content_layout.addWidget(self.log_view)
 
         layout.addStretch(1)
         layout.addLayout(content_layout)
@@ -1024,7 +1064,8 @@ class OptimizerUI(GalaxyBackground):
             "Safe mode active: advanced tweaks skipped" if safe_mode else "Advanced mode active: all tweaks enabled"
         )
 
-        self.worker = OptimizerWorker(safe_mode=safe_mode, create_restore_point=restore_enabled)
+        self.worker = OptimizerWorker(safe_mode=safe_mode, create_restore_point=restore_enabled, mode=self.mode_box.currentText())
+        self.log_view.clear()
         self.worker.progress.connect(self.update_progress)
         self.worker.status.connect(self.update_status)
         self.worker.substatus.connect(self.update_substatus)
@@ -1032,6 +1073,8 @@ class OptimizerUI(GalaxyBackground):
         self.worker.profile.connect(self.update_profile)
         self.worker.done.connect(self.finish_optimization)
         self.worker.error.connect(self.handle_error)
+        self.worker.step_count.connect(self.update_step_label)
+        self.worker.log_line.connect(self.append_log)
 
         Thread(target=self.worker.run, daemon=True).start()
 
@@ -1064,6 +1107,8 @@ class OptimizerUI(GalaxyBackground):
         self.substatus.setStyleSheet(f"color: {palette['text_secondary']};")
         self.ai_status.setStyleSheet(f"color: {palette['text_muted']};")
         self.safety_note.setStyleSheet(f"color: {palette['success']};")
+        self.step_label.setStyleSheet(f"color: {palette['accent_soft']};")
+        self.log_view.setStyleSheet(f"background: {palette['progress_bg']}; color: {palette['text_primary']}; border: 1px solid {palette['progress_border']}; border-radius: 10px;")
 
         check_style = (
             "QCheckBox {"
@@ -1115,6 +1160,12 @@ class OptimizerUI(GalaxyBackground):
             self.add_particle_burst(random.randint(100, self.width()-100), random.randint(100, self.height()-100), 10)
             self.add_pulse_ring(self.width()//2, self.height()//2 + 50)
 
+    def update_step_label(self, current, total):
+        self.step_label.setText(f"Pipeline step: {current}/{total}")
+
+    def append_log(self, line):
+        self.log_view.append(f"[{datetime.now().strftime('%H:%M:%S')}] {line}")
+
     def update_status(self, text):
         self.status.setText(text)
 
@@ -1152,7 +1203,8 @@ class OptimizerUI(GalaxyBackground):
             f"• AI Focus: {stats['focus']} ({stats['tier']})\n"
             f"• Free Space: {stats.get('disk_free_gb', 0)} GB\n"
             f"• Errors: {stats['errors']}\n"
-            f"• Skipped: {stats['skipped']}"
+            f"• Skipped: {stats['skipped']}\n"
+            f"• Mode: {stats.get('mode', 'FPS')}"
         )
         msg.setIcon(QMessageBox.Icon.Information)
 
