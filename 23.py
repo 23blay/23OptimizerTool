@@ -213,7 +213,6 @@ class OptimizerWorker(QObject):
             
             # Performance - Mostly Safe
             (self.optimize_power_plan, "Setting high performance plan", True),
-            (self.optimize_system_responsiveness, "Improving responsiveness", True),
             (self.optimize_game_mode, "Enabling Game Mode", True),
             (self.disable_game_dvr, "Disabling Game DVR", True),
 ]
@@ -684,14 +683,6 @@ class OptimizerWorker(QObject):
         self.substatus.emit("Setting high performance power plan")
         subprocess.run(
             "powercfg -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c",
-            shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
-        )
-
-    def optimize_system_responsiveness(self):
-        self.substatus.emit("Improving system responsiveness")
-        subprocess.run(
-            r'reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile" '
-            r'/v SystemResponsiveness /t REG_DWORD /d 10 /f',
             shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5
         )
 
